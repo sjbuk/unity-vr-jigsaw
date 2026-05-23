@@ -24,22 +24,25 @@ def build_adjacency_graph(
     n = len(mesh.vertices)
     faces = mesh.faces.astype(np.int64)
 
-    edges = set()
-    for f in faces:
-        edges.add((f[0], f[1]))
-        edges.add((f[1], f[2]))
-        edges.add((f[2], f[0]))
+    e0 = faces[:, [0, 1]]
+    e1 = faces[:, [1, 2]]
+    e2 = faces[:, [2, 0]]
+    all_edges = np.vstack([e0, e1, e2])
 
-    rows, cols, data = [], [], []
-    verts = mesh.vertices
-    for u, v in edges:
-        w = np.linalg.norm(verts[u] - verts[v]) if weighted else 1.0
-        rows.append(u)
-        cols.append(v)
-        data.append(w)
-        rows.append(v)
-        cols.append(u)
-        data.append(w)
+    sorted_edges = np.sort(all_edges, axis=1)
+    unique_edges = np.unique(sorted_edges, axis=0)
+
+    if weighted:
+        diff = mesh.vertices[unique_edges[:, 0]] - mesh.vertices[unique_edges[:, 1]]
+        weights = np.linalg.norm(diff, axis=1)
+    else:
+        weights = np.ones(len(unique_edges))
+
+    u = unique_edges[:, 0]
+    v = unique_edges[:, 1]
+    rows = np.concatenate([u, v])
+    cols = np.concatenate([v, u])
+    data = np.concatenate([weights, weights])
 
     return sparse.csr_matrix((data, (rows, cols)), shape=(n, n))
 

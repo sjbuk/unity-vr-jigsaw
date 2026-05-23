@@ -11,6 +11,7 @@ Phase 4: Robust Boolean Slicing Pipeline.
 import warnings
 import numpy as np
 import trimesh
+from scipy.spatial import KDTree
 
 CUT_FACE_MATERIAL = 1
 
@@ -173,17 +174,18 @@ def cap_mesh(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
 
 def detect_cut_faces(
     piece: trimesh.Trimesh,
-    original_mesh: trimesh.Trimesh,
+    original_kdtree: KDTree,
     distance_threshold: float = 1e-4,
 ) -> np.ndarray:
     """
     Return a boolean mask marking faces that are *not* on the original surface
     (i.e. freshly-cut interior faces).
+
+    Uses a pre-built scipy KDTree over original-mesh triangle centroids for
+    O(log N) queries per face instead of the O(N) rtree path in trimesh.
     """
     piece_centroids = piece.triangles_center
-    closest, dists, _ = trimesh.proximity.closest_point(
-        original_mesh, piece_centroids
-    )
+    dists, _ = original_kdtree.query(piece_centroids)
     return dists > distance_threshold
 
 
@@ -313,8 +315,10 @@ def cut_pieces_full_3d(
 
     # ---- UV mapping ----------------------------------------------------------
     print("[Phase 4] Computing triplanar UVs for cut faces …")
+    kdtree = KDTree(mesh.triangles_center)
+    threshold = max(config.gap * 5, 1e-6)
     for i, piece in enumerate(pieces):
-        cut_mask = detect_cut_faces(piece, mesh, distance_threshold=config.gap)
+        cut_mask = detect_cut_faces(piece, kdtree, distance_threshold=threshold)
         pieces[i] = apply_triplanar_uvs(piece, cut_mask)
 
     print(f"[Phase 4] {len(pieces)} pieces finalised.")
@@ -332,11 +336,13 @@ def cut_pieces_shell(
     Steps: inflect for gap, cap, detect cut faces, apply triplanar UVs.
     """
     print("[Phase 4] Processing shell pieces …")
+    kdtree = KDTree(mesh.triangles_center)
+    threshold = max(config.shell_thickness * 0.3, config.gap * 10)
     final: list[trimesh.Trimesh] = []
     for i, piece in enumerate(pieces):
         piece = _inflect(piece, config.gap / 2.0)
         piece = cap_mesh(piece)
-        cut_mask = detect_cut_faces(piece, mesh, distance_threshold=config.gap)
+        cut_mask = detect_cut_faces(piece, kdtree, distance_threshold=threshold)
         piece = apply_triplanar_uvs(piece, cut_mask)
         final.append(piece)
         if (i + 1) % 10 == 0:

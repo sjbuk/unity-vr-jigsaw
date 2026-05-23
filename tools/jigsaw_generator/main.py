@@ -1,9 +1,12 @@
 """
 main.py — CLI entry point for the 3D Jigsaw Piece Generator.
 
-Phases implemented:
+Phases:
     Phase 1: Model ingestion, normalization, topology validation
     Phase 2: Centroidal geodesic Voronoi partitioning (CVT)
+    Phase 3: Interlocking joinery (sinusoidal tabs / tapered pegs)
+    Phase 4: Boolean slicing, hole capping, triplanar UV mapping
+    Export: GLB + checkpoint JSON
 
 Usage:
     python main.py --input model.glb --output out/ --pieces 24
@@ -26,6 +29,8 @@ try:
         validate_topology,
     )
     from .partitioner import SurfacePartitioner
+    from .jigsaw_nubs import apply_joinery
+    from .mesh_cutter import cut_pieces_full_3d, cut_pieces_shell
 except ImportError:
     from config import Config, build_arg_parser
     from mesh_io import (
@@ -36,9 +41,15 @@ except ImportError:
         validate_topology,
     )
     from partitioner import SurfacePartitioner
+    from jigsaw_nubs import apply_joinery
+    from mesh_cutter import cut_pieces_full_3d, cut_pieces_shell
 
 
-def run_phase1(config: Config):
+# ---------------------------------------------------------------------------
+# Phase 1
+# ---------------------------------------------------------------------------
+
+def run_phase1(config: Config) -> trimesh.Trimesh:
     """Load, normalize, and validate the input mesh."""
     print(f"[Phase 1] Loading: {config.input_path}")
     mesh = load_model(config.input_path)
@@ -75,13 +86,18 @@ def run_phase1(config: Config):
     return mesh
 
 
-def run_phase2(mesh, config: Config):
-    """Partition the mesh surface into puzzle-piece patches (CVT)."""
+# ---------------------------------------------------------------------------
+# Phase 2
+# ---------------------------------------------------------------------------
+
+def run_phase2(
+    mesh: trimesh.Trimesh, config: Config
+) -> tuple[np.ndarray, np.ndarray, list[trimesh.Trimesh], list[trimesh.Trimesh] | None]:
+    """Partition the mesh surface via CVT.  Extrude for shell mode."""
     print(
         f"[Phase 2] Partitioning into {config.pieces} pieces "
         f"(mode={config.mode}) …"
     )
-
     partitioner = SurfacePartitioner(
         mesh,
         n_pieces=config.pieces,
@@ -89,7 +105,6 @@ def run_phase2(mesh, config: Config):
         max_iterations=7,
         sample_size=50,
     )
-
     seeds, labels = partitioner.partition()
     print(f"[Phase 2] CVT converged – {config.pieces} patches assigned.")
 
@@ -101,59 +116,95 @@ def run_phase2(mesh, config: Config):
             f"[Phase 2] Extruding patches inward by "
             f"{config.shell_thickness} …"
         )
-        pieces = [
+        shell_pieces = [
             partitioner.extrude_patch(p, config.shell_thickness, config.gap)
             for p in patches
         ]
-        print(f"[Phase 2] Created {len(pieces)} extruded shell pieces.")
-        return seeds, labels, patches, pieces
+        print(f"[Phase 2] Created {len(shell_pieces)} extruded shell pieces.")
+        return seeds, labels, patches, shell_pieces
 
     return seeds, labels, patches, None
 
+
+# ---------------------------------------------------------------------------
+# Phase 3
+# ---------------------------------------------------------------------------
+
+def run_phase3(
+    patches: list[trimesh.Trimesh],
+    pieces: list[trimesh.Trimesh] | None,
+    labels: np.ndarray,
+    mesh: trimesh.Trimesh,
+    config: Config,
+) -> tuple[list[trimesh.Trimesh], list[trimesh.Trimesh] | None]:
+    """Apply interlocking joinery to patch boundaries."""
+    print(f"[Phase 3] Generating joinery (mode={config.mode}) …")
+    result_patches, result_pieces = apply_joinery(
+        patches, pieces, labels, mesh, config
+    )
+    print("[Phase 3] Joinery complete.")
+    return result_patches, result_pieces
+
+
+# ---------------------------------------------------------------------------
+# Phase 4
+# ---------------------------------------------------------------------------
+
+def run_phase4(
+    mesh: trimesh.Trimesh,
+    patches: list[trimesh.Trimesh],
+    pieces: list[trimesh.Trimesh] | None,
+    labels: np.ndarray,
+    config: Config,
+) -> list[trimesh.Trimesh]:
+    """Boolean cutting, hole capping, and triplanar UV assignment."""
+    if config.mode == "shell":
+        target = pieces if pieces else patches
+        return cut_pieces_shell(target, mesh, config)
+
+    print("[Phase 4] Full-3D boolean cutting pipeline …")
+    return cut_pieces_full_3d(mesh, patches, labels, config)
+
+
+# ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
 
 def export_results(
     config: Config,
     mesh: trimesh.Trimesh,
     seeds: np.ndarray,
     labels: np.ndarray,
-    patches: list[trimesh.Trimesh],
-    pieces: list[trimesh.Trimesh] | None,
+    final_pieces: list[trimesh.Trimesh],
 ) -> None:
     """Write all generated assets to the output directory."""
     out = config.output_path
-
-    source_meshes = pieces if pieces else patches
     total_bounds = mesh.bounding_box
 
-    # ---- individual piece GLB files ------------------------------------------
     pieces_dir = os.path.join(out, "pieces")
     os.makedirs(pieces_dir, exist_ok=True)
 
-    for i, piece_mesh in enumerate(source_meshes):
+    for i, piece_mesh in enumerate(final_pieces):
         path = os.path.join(pieces_dir, f"piece_{i:04d}.glb")
         piece_mesh.export(path)
-    print(f"[Export] Wrote {len(source_meshes)} individual pieces to {pieces_dir}")
+    print(f"[Export] Wrote {len(final_pieces)} individual pieces to {pieces_dir}")
 
-    # ---- consolidated multi-node GLB -----------------------------------------
     scene = trimesh.Scene()
-    for i, piece_mesh in enumerate(source_meshes):
+    for i, piece_mesh in enumerate(final_pieces):
         node_name = f"piece_{i}"
-        scene.add_geometry(
-            piece_mesh,
-            node_name=node_name,
-            geom_name=node_name,
-        )
+        scene.add_geometry(piece_mesh, node_name=node_name, geom_name=node_name)
     consolidated_path = os.path.join(out, "pieces.glb")
     scene.export(consolidated_path)
     print(f"[Export] Wrote consolidated multi-node GLB to {consolidated_path}")
 
-    # ---- checkpoint JSON -----------------------------------------------------
     checkpoint = {
         "source": os.path.basename(config.input_path),
         "piece_count": config.pieces,
         "mode": config.mode,
         "gap": config.gap,
+        "peg_clearance": config.peg_clearance,
         "shell_thickness": config.shell_thickness,
+        "tab_density": config.tab_density,
         "seed": config.seed,
         "total_bounds": {
             "center": total_bounds.centroid.tolist(),
@@ -170,6 +221,10 @@ def export_results(
     print(f"[Export] Wrote checkpoint to {checkpoint_path}")
 
 
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
@@ -185,11 +240,12 @@ def main(argv: list[str] | None = None) -> int:
 
     mesh = run_phase1(config)
     seeds, labels, patches, pieces = run_phase2(mesh, config)
-
-    export_results(config, mesh, seeds, labels, patches, pieces)
+    patches, pieces = run_phase3(patches, pieces, labels, mesh, config)
+    final_pieces = run_phase4(mesh, patches, pieces, labels, config)
+    export_results(config, mesh, seeds, labels, final_pieces)
 
     print(f"\n[Done] Output directory: {config.output_path}")
-    print(f"[Done] {config.pieces} pieces ready for Phase 3 (joinery).")
+    print(f"[Done] {len(final_pieces)} pieces exported.")
     return 0
 
 

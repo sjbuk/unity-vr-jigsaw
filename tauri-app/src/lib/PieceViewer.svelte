@@ -47,11 +47,12 @@
     controls.dampingFactor = 0.05;
     controls.update();
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.6));
-    const dl = new THREE.DirectionalLight(0xffffff, 1.0);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.8));
+    const dl = new THREE.DirectionalLight(0xffffff, 1.5);
     dl.position.set(5, 10, 7);
     scene.add(dl);
-    const fl = new THREE.DirectionalLight(0x4488ff, 0.3);
+    const fl = new THREE.DirectionalLight(0x8888ff, 0.5);
     fl.position.set(-5, 0, 5);
     scene.add(fl);
     scene.add(new THREE.GridHelper(4, 20, 0x444466, 0x333355));
@@ -87,7 +88,12 @@
   }
 
   function addMesh(m: THREE.Mesh, color: THREE.Color, offset?: THREE.Vector3) {
-    m.material = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.1 });
+    m.geometry.computeVertexNormals();
+    m.material = new THREE.MeshPhongMaterial({
+      color,
+      shininess: 30,
+      flatShading: false,
+    });
     m.castShadow = true;
     if (offset) m.position.copy(offset);
     scene!.add(m);
@@ -128,43 +134,61 @@
     if (!scene) return;
     clearScene();
 
-    const centers: THREE.Vector3[] = [];
+    type LoadResult = {
+      meshes: THREE.Mesh[];
+      center: THREE.Vector3;
+      index: number;
+    };
 
-    for (let i = 0; i < paths.length; i++) {
-      if (gen !== loadingGen) return;
-      try {
-        const b64 = await readBinaryFile(paths[i]);
-        if (gen !== loadingGen) return;
-        const buf = base64ToBuffer(b64);
-        const group = await loader.parseAsync(buf, '');
-        if (gen !== loadingGen) return;
+    const results = await Promise.all(
+      paths.map(async (path, i) => {
+        try {
+          const b64 = await readBinaryFile(path);
+          if (gen !== loadingGen) return null;
+          const buf = base64ToBuffer(b64);
+          const gltf = await loader.parseAsync(buf, '');
+          if (gen !== loadingGen) return null;
 
-        let box = new THREE.Box3();
-        group.scene.traverse(child => {
-          if (child instanceof THREE.Mesh) {
-            box.expandByObject(child);
-            addMesh(child, pieceColor(i));
-          }
-        });
-        centers.push(box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3()));
-      } catch (err) {
-        loadError = `Piece ${i}: ${err instanceof Error ? err.message : String(err)}`;
-        console.error(err);
-      }
-    }
+          let box = new THREE.Box3();
+          const found: THREE.Mesh[] = [];
+          gltf.scene.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+              box.expandByObject(child);
+              found.push(child);
+            }
+          });
+          return { meshes: found, center: box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3()), index: i } satisfies LoadResult;
+        } catch (err) {
+          console.error(`Piece ${i}:`, err);
+          return null;
+        }
+      }),
+    );
 
     if (gen !== loadingGen) return;
 
+    const centers: THREE.Vector3[] = [];
+    for (const r of results) {
+      if (!r) continue;
+      for (const m of r.meshes) {
+        addMesh(m, pieceColor(r.index));
+      }
+      centers[r.index] = r.center;
+    }
+
     if (centers.length > 0) {
       const avg = new THREE.Vector3();
-      for (const c of centers) avg.add(c);
+      for (const c of centers) if (c) avg.add(c);
       avg.divideScalar(centers.length);
       for (let i = 0; i < meshes.length && i < centers.length; i++) {
-        const dir = new THREE.Vector3().copy(centers[i]).sub(avg).normalize();
+        const c = centers[i];
+        if (!c) continue;
+        const dir = new THREE.Vector3().copy(c).sub(avg).normalize();
         if (dir.length() < 0.001) dir.set(0, 1, 0);
         meshes[i].position.add(dir.multiplyScalar(0.008));
       }
     }
+
     applyVisibility();
     fitCamera();
   }
@@ -178,11 +202,11 @@
       const b64 = await readBinaryFile(path);
       if (gen !== loadingGen) return;
       const buf = base64ToBuffer(b64);
-      const group = await loader.parseAsync(buf, '');
+      const gltf = await loader.parseAsync(buf, '');
       if (gen !== loadingGen) return;
 
       let idx = 0;
-      group.scene.traverse(child => {
+      gltf.scene.traverse((child) => {
         if (child instanceof THREE.Mesh) addMesh(child, pieceColor(idx++));
       });
       applyVisibility();
@@ -196,7 +220,6 @@
     const paths = piecePaths;
     const cpath = consolidatedPath;
     const mode = viewMode;
-    const vis = pieceVisible;
 
     if (!container) return;
     if (!renderer) init();

@@ -19,13 +19,12 @@
   <h3>Pieces ({pieces.length})</h3>
   <ul>
     {#each pieces as piece, i}
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
       <li
         class:hidden={i < visible.length && !visible[i]}
         onclick={() => toggle(i)}
         onkeydown={(e) => e.key === 'Enter' && toggle(i)}
         tabindex="0"
-        role="button"
       >
         <span class="dot" class:off={i < visible.length && !visible[i]}>●</span>
         <span class="piece-index">#{piece.index}</span>

@@ -19,6 +19,7 @@
   <h3>Pieces ({pieces.length})</h3>
   <ul>
     {#each pieces as piece, i}
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_click_events_have_key_events -->
       <li
         class:hidden={i < visible.length && !visible[i]}
         onclick={() => toggle(i)}

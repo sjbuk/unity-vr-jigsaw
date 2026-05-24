@@ -32,6 +32,10 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
+# Test / output artifacts
+test_tauri_output/
+**/*_pieces_*
+
 tools/profile_output/pieces.glb
 tools/profile_output/profile.prof
 tools/profile_output/checkpoint.json

@@ -7,10 +7,10 @@ Usage:
     python run_slice.py <config.json>
 """
 
+import contextlib
 import json
 import os
 import sys
-from io import StringIO
 
 import numpy as np
 
@@ -47,20 +47,23 @@ def main() -> int:
         print(json.dumps({"error": str(e)}), file=sys.stdout)
         return 1
 
-    _log("[Phase 1] Loading and normalizing model…")
-    mesh = run_phase1(config)
+    # Redirect stdout to stderr during slicing so that main.py's print()
+    # calls (progress) don't pollute the JSON result on stdout.
+    with contextlib.redirect_stdout(sys.stderr):
+        _log("[Phase 1] Loading and normalizing model…")
+        mesh = run_phase1(config)
 
-    _log("[Phase 2] Partitioning model into pieces…")
-    working_mesh, seeds, labels, patches, pieces = run_phase2(mesh, config)
+        _log("[Phase 2] Partitioning model into pieces…")
+        working_mesh, seeds, labels, patches, pieces = run_phase2(mesh, config)
 
-    _log("[Phase 3] Applying interlocking joinery…")
-    patches, pieces = run_phase3(patches, pieces, labels, working_mesh, config)
+        _log("[Phase 3] Applying interlocking joinery…")
+        patches, pieces = run_phase3(patches, pieces, labels, working_mesh, config)
 
-    _log("[Phase 4] Boolean cutting and UV mapping…")
-    final_pieces = run_phase4(mesh, patches, pieces, labels, config)
+        _log("[Phase 4] Boolean cutting and UV mapping…")
+        final_pieces = run_phase4(mesh, patches, pieces, labels, config)
 
-    _log("[Export] Writing output files…")
-    export_results(config, mesh, seeds, labels, final_pieces)
+        _log("[Export] Writing output files…")
+        export_results(config, mesh, seeds, labels, final_pieces)
 
     pieces_info = []
     for i in range(len(final_pieces)):

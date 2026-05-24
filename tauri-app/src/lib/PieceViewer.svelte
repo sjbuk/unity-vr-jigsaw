@@ -2,7 +2,7 @@
   import * as THREE from 'three';
   import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-  import { readBinaryFile } from './api';
+  import { convertFileSrc } from '@tauri-apps/api/core';
   import type { ViewMode } from '../types';
 
   let {
@@ -10,11 +10,13 @@
     consolidatedPath = $bindable(''),
     viewMode = $bindable<ViewMode>('split'),
     pieceVisible = $bindable<boolean[]>([]),
+    showTexture = $bindable(false),
   }: {
     piecePaths?: string[];
     consolidatedPath?: string;
     viewMode?: ViewMode;
     pieceVisible?: boolean[];
+    showTexture?: boolean;
   } = $props();
 
   let container: HTMLDivElement;
@@ -26,6 +28,8 @@
   let loadingGen = 0;
 
   const meshes: THREE.Mesh[] = [];
+  const originalMaterials: (THREE.Material | THREE.Material[] | null)[] = [];
+  const meshPieceIndex: number[] = [];
   let loader: GLTFLoader;
 
   function init() {
@@ -75,29 +79,39 @@
     });
   }
 
-  function base64ToBuffer(b64: string): ArrayBuffer {
-    const bin = atob(b64);
-    const buf = new ArrayBuffer(bin.length);
-    const view = new Uint8Array(buf);
-    for (let i = 0; i < bin.length; i++) view[i] = bin.charCodeAt(i);
-    return buf;
-  }
-
   function pieceColor(index: number): THREE.Color {
     return new THREE.Color().setHSL((index * 0.618033988749895) % 1.0, 0.65, 0.45);
   }
 
-  function addMesh(m: THREE.Mesh, color: THREE.Color, offset?: THREE.Vector3) {
+  function addMesh(m: THREE.Mesh, pieceIdx: number, offset?: THREE.Vector3) {
     m.geometry.computeVertexNormals();
-    m.material = new THREE.MeshPhongMaterial({
-      color,
-      shininess: 30,
-      flatShading: false,
-    });
+    const meshIdx = meshes.length;
+    originalMaterials.push(m.material ?? null);
+    meshPieceIndex.push(pieceIdx);
+    applyMeshMaterial(m, pieceIdx, meshIdx);
     m.castShadow = true;
     if (offset) m.position.copy(offset);
     scene!.add(m);
     meshes.push(m);
+  }
+
+  function applyMeshMaterial(m: THREE.Mesh, pieceIdx: number, meshIdx: number) {
+    if (showTexture && originalMaterials[meshIdx]) {
+      const orig = originalMaterials[meshIdx];
+      m.material = Array.isArray(orig) ? orig[0] : orig!;
+    } else {
+      m.material = new THREE.MeshPhongMaterial({
+        color: pieceColor(pieceIdx),
+        shininess: 30,
+        flatShading: false,
+      });
+    }
+  }
+
+  function updateMaterials() {
+    for (let i = 0; i < meshes.length; i++) {
+      applyMeshMaterial(meshes[i], meshPieceIndex[i], i);
+    }
   }
 
   function fitCamera() {
@@ -116,10 +130,10 @@
     for (const m of meshes) {
       scene.remove(m);
       if (m.geometry) m.geometry.dispose();
-      if (Array.isArray(m.material)) m.material.forEach(x => x.dispose());
-      else if (m.material) m.material.dispose();
     }
     meshes.length = 0;
+    originalMaterials.length = 0;
+    meshPieceIndex.length = 0;
     loadError = '';
   }
 
@@ -143,10 +157,8 @@
     const results = await Promise.all(
       paths.map(async (path, i) => {
         try {
-          const b64 = await readBinaryFile(path);
-          if (gen !== loadingGen) return null;
-          const buf = base64ToBuffer(b64);
-          const gltf = await loader.parseAsync(buf, '');
+          const url = convertFileSrc(path);
+          const gltf = await loader.loadAsync(url);
           if (gen !== loadingGen) return null;
 
           let box = new THREE.Box3();
@@ -171,7 +183,7 @@
     for (const r of results) {
       if (!r) continue;
       for (const m of r.meshes) {
-        addMesh(m, pieceColor(r.index));
+        addMesh(m, r.index);
       }
       centers[r.index] = r.center;
     }
@@ -199,15 +211,13 @@
     clearScene();
 
     try {
-      const b64 = await readBinaryFile(path);
-      if (gen !== loadingGen) return;
-      const buf = base64ToBuffer(b64);
-      const gltf = await loader.parseAsync(buf, '');
+      const url = convertFileSrc(path);
+      const gltf = await loader.loadAsync(url);
       if (gen !== loadingGen) return;
 
       let idx = 0;
       gltf.scene.traverse((child) => {
-        if (child instanceof THREE.Mesh) addMesh(child, pieceColor(idx++));
+        if (child instanceof THREE.Mesh) addMesh(child, idx++);
       });
       applyVisibility();
       fitCamera();
@@ -232,6 +242,16 @@
     } else {
       clearScene();
     }
+  });
+
+  $effect(() => {
+    pieceVisible;
+    if (meshes.length > 0) applyVisibility();
+  });
+
+  $effect(() => {
+    showTexture;
+    if (meshes.length > 0) updateMaterials();
   });
 </script>
 

@@ -6,7 +6,13 @@
     "core:default",
     "dialog:default",
     "dialog:allow-open",
-    "fs:default",
-    "fs:allow-read"
+    {
+      "identifier": "fs:allow-read",
+      "allow": [{ "path": "**" }]
+    },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [{ "path": "**" }]
+    }
   ]
 }

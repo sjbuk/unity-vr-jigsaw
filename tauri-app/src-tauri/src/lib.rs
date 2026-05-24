@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 
-use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
@@ -156,19 +155,12 @@ fn read_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("Failed to read text file: {e}"))
 }
 
-/// Read a binary file and return its contents as a base64-encoded string.
-#[tauri::command]
-fn read_binary_file(path: String) -> Result<String, String> {
-    let data = std::fs::read(&path).map_err(|e| format!("Failed to read binary file: {e}"))?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(&data))
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![slice_model, read_text_file, read_binary_file])
+        .invoke_handler(tauri::generate_handler![slice_model, read_text_file])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -140,7 +140,7 @@
         if (gen !== loadingGen) return;
 
         let box = new THREE.Box3();
-        group.traverse(child => {
+        group.scene.traverse(child => {
           if (child instanceof THREE.Mesh) {
             box.expandByObject(child);
             addMesh(child, pieceColor(i));
@@ -182,7 +182,7 @@
       if (gen !== loadingGen) return;
 
       let idx = 0;
-      group.traverse(child => {
+      group.scene.traverse(child => {
         if (child instanceof THREE.Mesh) addMesh(child, pieceColor(idx++));
       });
       applyVisibility();

@@ -14,8 +14,9 @@ dist/
 build/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
+
 parts/
 sdist/
 var/
@@ -34,3 +35,10 @@ htmlcov/
 tools/profile_output/pieces.glb
 tools/profile_output/profile.prof
 tools/profile_output/checkpoint.json
+
+# Tauri / Rust
+tauri-app/src-tauri/target/
+tauri-app/src-tauri/icons/
+tauri-app/dist/
+tauri-app/node_modules/
+tauri-app/icon.png

@@ -3,7 +3,7 @@ main.py — CLI entry point for the 3D Jigsaw Piece Generator.
 
 Phases:
     Phase 1: Model ingestion, normalization, topology validation
-    Phase 2: Centroidal geodesic Voronoi partitioning (CVT)
+    Phase 2: Concurrent BFS flood-fill partitioning (surface / volumetric)
     Phase 3: Interlocking joinery (sinusoidal tabs / tapered pegs)
     Phase 4: Boolean slicing, hole capping, triplanar UV mapping
     Export: GLB + checkpoint JSON
@@ -28,7 +28,7 @@ try:
         has_uv_maps,
         validate_topology,
     )
-    from .partitioner import SurfacePartitioner
+    from .partitioner import FloodFillPartitioner
     from .jigsaw_nubs import apply_joinery
     from .mesh_cutter import cut_pieces_full_3d, cut_pieces_shell
 except ImportError:
@@ -40,7 +40,7 @@ except ImportError:
         has_uv_maps,
         validate_topology,
     )
-    from partitioner import SurfacePartitioner
+    from partitioner import FloodFillPartitioner
     from jigsaw_nubs import apply_joinery
     from mesh_cutter import cut_pieces_full_3d, cut_pieces_shell
 
@@ -92,21 +92,25 @@ def run_phase1(config: Config) -> trimesh.Trimesh:
 
 def run_phase2(
     mesh: trimesh.Trimesh, config: Config
-) -> tuple[np.ndarray, np.ndarray, list[trimesh.Trimesh], list[trimesh.Trimesh] | None]:
-    """Partition the mesh surface via CVT.  Extrude for shell mode."""
+) -> tuple[trimesh.Trimesh, np.ndarray, np.ndarray, list[trimesh.Trimesh], list[trimesh.Trimesh] | None]:
+    """Partition the mesh surface via concurrent BFS flood fill.  Extrude for shell mode.
+
+    Returns:
+        (working_mesh, seeds, labels, patches, shell_pieces)
+        working_mesh is the (possibly boundary-smoothed) mesh used for extraction.
+    """
     print(
         f"[Phase 2] Partitioning into {config.pieces} pieces "
         f"(mode={config.mode}) …"
     )
-    partitioner = SurfacePartitioner(
+    partitioner = FloodFillPartitioner(
         mesh,
         n_pieces=config.pieces,
         seed=config.seed,
-        max_iterations=7,
-        sample_size=50,
+        mode=config.mode,
     )
     seeds, labels = partitioner.partition()
-    print(f"[Phase 2] CVT converged – {config.pieces} patches assigned.")
+    print(f"[Phase 2] Flood fill complete – {config.pieces} patches assigned.")
 
     patches = partitioner.get_patch_meshes()
     print(f"[Phase 2] Extracted {len(patches)} surface-patch meshes.")
@@ -121,9 +125,9 @@ def run_phase2(
             for p in patches
         ]
         print(f"[Phase 2] Created {len(shell_pieces)} extruded shell pieces.")
-        return seeds, labels, patches, shell_pieces
+        return partitioner.working_mesh, seeds, labels, patches, shell_pieces
 
-    return seeds, labels, patches, None
+    return partitioner.working_mesh, seeds, labels, patches, None
 
 
 # ---------------------------------------------------------------------------
@@ -239,8 +243,8 @@ def main(argv: list[str] | None = None) -> int:
     os.makedirs(config.output_path, exist_ok=True)
 
     mesh = run_phase1(config)
-    seeds, labels, patches, pieces = run_phase2(mesh, config)
-    patches, pieces = run_phase3(patches, pieces, labels, mesh, config)
+    working_mesh, seeds, labels, patches, pieces = run_phase2(mesh, config)
+    patches, pieces = run_phase3(patches, pieces, labels, working_mesh, config)
     final_pieces = run_phase4(mesh, patches, pieces, labels, config)
     export_results(config, mesh, seeds, labels, final_pieces)
 

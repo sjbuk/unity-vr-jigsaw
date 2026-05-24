@@ -148,10 +148,31 @@ def surface_to_volume(
 
 def _inflect(mesh: trimesh.Trimesh, distance: float) -> trimesh.Trimesh:
     """Move every vertex inward along its normal by *distance*."""
+    top_face_count = getattr(mesh, "_top_face_count", 0)
     mesh = mesh.copy()
+    mesh._top_face_count = top_face_count
     n = mesh.vertex_normals.copy()
     n[np.isnan(n)] = 0.0
-    mesh.vertices -= n * distance
+    nan_mask = np.all(n == 0.0, axis=1)
+    if np.any(nan_mask):
+        n[nan_mask] = np.array([0.0, 0.0, 1.0])
+
+    if distance > 0.0 and len(mesh.edges_unique) > 0:
+        vert_diffs = mesh.vertices[mesh.edges_unique[:, 0]] - mesh.vertices[mesh.edges_unique[:, 1]]
+        edge_lengths = np.linalg.norm(vert_diffs, axis=1)
+        min_edge = np.full(len(mesh.vertices), distance, dtype=np.float64)
+        np.minimum.at(min_edge, mesh.edges_unique[:, 0], edge_lengths)
+        np.minimum.at(min_edge, mesh.edges_unique[:, 1], edge_lengths)
+        max_step = np.abs(min_edge) * 0.5
+        clamped = np.minimum(distance, max_step)
+        if np.any(clamped < distance * 0.1):
+            warnings.warn(
+                f"Inflect distance clamped for {int(np.sum(clamped < distance * 0.1))} "
+                "vertices at sharp features to prevent self-intersection"
+            )
+        mesh.vertices -= n * clamped[:, None]
+    else:
+        mesh.vertices -= n * distance
     return mesh
 
 
@@ -163,8 +184,20 @@ def cap_mesh(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     """Fill all boundary holes to produce a watertight solid."""
     if mesh.is_watertight:
         return mesh
+    top_face_count = getattr(mesh, "_top_face_count", 0)
     mesh = mesh.copy()
+    mesh._top_face_count = top_face_count
     mesh.fill_holes()
+    if not mesh.is_watertight:
+        mesh.fill_holes()
+    if not mesh.is_watertight:
+        if not mesh.is_volume:
+            warnings.warn("Mesh still has open boundaries after fill_holes()")
+        else:
+            warnings.warn(
+                "Mesh is closed but non-manifold after fill_holes() "
+                "(rendering will be unaffected)"
+            )
     return mesh
 
 
@@ -195,14 +228,10 @@ def apply_triplanar_uvs(
 ) -> trimesh.Trimesh:
     """
     Assign procedural triplanar UV coordinates to interior cut faces.
-    Exterior faces keep their original UVs (if any).
 
-    Returns a new mesh with a two-channel UV array:
-        uv[:, 0] = U  (exterior original or triplanar)
-        uv[:, 1] = V  (exterior original or triplanar)
-
-    and a face `material_index` attribute where CUT_FACE_MATERIAL identifies
-    interior faces.
+    Only vertices that belong EXCLUSIVELY to cut faces receive triplanar UVs.
+    Boundary vertices shared with non-cut (original-surface) faces keep their
+    original UV coordinates, preventing visible seams at piece edges.
     """
     verts = piece.vertices.copy()
     n_verts = len(verts)
@@ -211,9 +240,12 @@ def apply_triplanar_uvs(
     if not hasattr(piece.visual, "uv") or piece.visual.uv is None:
         exterior_uv = np.zeros((n_verts, 2), dtype=np.float32)
     else:
-        exterior_uv = piece.visual.uv.copy().astype(np.float32).reshape(-1, 2)
+        raw = piece.visual.uv.copy().astype(np.float32)
+        if raw.size == n_verts * 2:
+            exterior_uv = raw.reshape(n_verts, 2)
+        else:
+            exterior_uv = np.zeros((n_verts, 2), dtype=np.float32)
 
-    # ---- triplanar UVs for cut-face vertices --------------------------------
     bbox_min = verts.min(axis=0)
     bbox_max = verts.max(axis=0)
     extent = bbox_max - bbox_min
@@ -223,22 +255,31 @@ def apply_triplanar_uvs(
     triplanar_uv = np.column_stack([
         normalized[:, 0] * 0.5 + normalized[:, 2] * 0.5,
         normalized[:, 1],
-    ])
+    ]).astype(np.float32)
 
-    # ---- per-face material index --------------------------------------------
+    # Only overwrite vertices that belong EXCLUSIVELY to cut faces.
+    # Boundary vertices shared with non-cut faces keep original UVs.
+    vert_in_cut = np.zeros(n_verts, dtype=bool)
+    vert_in_non_cut = np.zeros(n_verts, dtype=bool)
+    if np.any(cut_mask):
+        vert_in_cut[piece.faces[cut_mask].ravel()] = True
+    if np.any(~cut_mask):
+        vert_in_non_cut[piece.faces[~cut_mask].ravel()] = True
+    exclusive_cut = vert_in_cut & ~vert_in_non_cut
+
+    final_uv = np.where(exclusive_cut[:, None], triplanar_uv, exterior_uv)
+
     material_idx = np.zeros(n_faces, dtype=np.int32)
     material_idx[cut_mask] = CUT_FACE_MATERIAL
 
-    # ---- build new mesh with both UV channels --------------------------------
+    piece_material = getattr(piece.visual, "material", None)
+    top_face_count = getattr(piece, "_top_face_count", 0)
+
     piece = piece.copy()
-    piece.visual = trimesh.visual.texture.TextureVisuals(
-        uv=np.where(
-            # broadcast cut_mask over per-face → per-vertex
-            np.repeat(cut_mask, 3)[:, None],
-            triplanar_uv[piece.faces.ravel()],
-            exterior_uv[piece.faces.ravel()],
-        ).astype(np.float32),
-    )
+    piece._top_face_count = top_face_count
+    piece.visual = trimesh.visual.texture.TextureVisuals(uv=final_uv)
+    if piece_material is not None:
+        piece.visual.material = piece_material
     piece.visual.material_idx = material_idx
 
     return piece
@@ -334,16 +375,26 @@ def cut_pieces_shell(
     Process pre-extruded shell pieces (from Phase 2 + Phase 3 tabs).
 
     Steps: inflect for gap, cap, detect cut faces, apply triplanar UVs.
+    Uses structural knowledge (_top_face_count) for reliable cut-face
+    detection, falling back to distance-based KDTree if unavailable.
     """
     print("[Phase 4] Processing shell pieces …")
     kdtree = KDTree(mesh.triangles_center)
-    threshold = max(config.shell_thickness * 0.3, config.gap * 10)
+    distance_threshold = max(config.shell_thickness * 0.5, config.gap * 10)
     final: list[trimesh.Trimesh] = []
     for i, piece in enumerate(pieces):
         piece = _inflect(piece, config.gap / 2.0)
         piece = cap_mesh(piece)
-        cut_mask = detect_cut_faces(piece, kdtree, distance_threshold=threshold)
+
+        top_face_count = getattr(piece, "_top_face_count", 0)
+        if top_face_count > 0 and top_face_count < len(piece.faces):
+            cut_mask = np.ones(len(piece.faces), dtype=bool)
+            cut_mask[:top_face_count] = False
+        else:
+            cut_mask = detect_cut_faces(piece, kdtree, distance_threshold=distance_threshold)
+
         piece = apply_triplanar_uvs(piece, cut_mask)
+        piece.fix_normals()
         final.append(piece)
         if (i + 1) % 10 == 0:
             print(f"           … {i + 1}/{len(pieces)} pieces processed")

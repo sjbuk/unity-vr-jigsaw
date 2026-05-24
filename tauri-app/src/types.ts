@@ -28,6 +28,8 @@ export interface SliceResult {
   mode: string;
 }
 
+export type ViewMode = 'split' | 'assembled';
+
 export const DEFAULT_PARAMS: SliceParams = {
   input_path: '',
   output_path: '',

@@ -3,10 +3,18 @@
   import * as THREE from 'three';
   import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-  import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-  import { convertFileSrc } from '@tauri-apps/api/core';
+  import { readFile } from '@tauri-apps/plugin-fs';
+  import type { ViewMode } from '../types';
 
-  let { piecePaths = $bindable([]) }: { piecePaths?: string[] } = $props();
+  let {
+    piecePaths = $bindable([]),
+    consolidatedPath = $bindable(''),
+    viewMode = $bindable<ViewMode>('split'),
+  }: {
+    piecePaths?: string[];
+    consolidatedPath?: string;
+    viewMode?: ViewMode;
+  } = $props();
 
   let container: HTMLDivElement;
   let renderer: THREE.WebGLRenderer | null = null;
@@ -15,7 +23,7 @@
   let controls: OrbitControls | null = null;
   let ready = $state(false);
 
-  const pieceMeshes: THREE.Mesh[] = [];
+  const meshes: THREE.Mesh[] = [];
   let loader: GLTFLoader;
 
   function initScene() {
@@ -44,27 +52,21 @@
     controls.dampingFactor = 0.05;
     controls.update();
 
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
-    scene.add(hemiLight);
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+    scene.add(hemi);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-    dirLight.position.set(5, 10, 7);
-    scene.add(dirLight);
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    dir.position.set(5, 10, 7);
+    scene.add(dir);
 
-    const dirLight2 = new THREE.DirectionalLight(0x4488ff, 0.3);
-    dirLight2.position.set(-5, 0, 5);
-    scene.add(dirLight2);
+    const fill = new THREE.DirectionalLight(0x4488ff, 0.3);
+    fill.position.set(-5, 0, 5);
+    scene.add(fill);
 
     const grid = new THREE.GridHelper(4, 20, 0x444466, 0x333355);
     scene.add(grid);
 
     loader = new GLTFLoader();
-    const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath(
-      'https://www.gstatic.com/draco/versioned/decoders/1.5.6/',
-    );
-    loader.setDRACOLoader(dracoLoader);
-
     animate();
   }
 
@@ -76,9 +78,9 @@
     }
   }
 
-  function clearPieces() {
+  function clearScene() {
     if (!scene) return;
-    for (const m of pieceMeshes) {
+    for (const m of meshes) {
       scene.remove(m);
       if (m.geometry) m.geometry.dispose();
       if (Array.isArray(m.material)) {
@@ -87,63 +89,140 @@
         m.material.dispose();
       }
     }
-    pieceMeshes.length = 0;
+    meshes.length = 0;
   }
 
-  function randomColor(): THREE.Color {
-    const hue = Math.random();
-    return new THREE.Color().setHSL(hue, 0.6, 0.45);
+  function pieceColor(index: number): THREE.Color {
+    const golden = (Math.sqrt(5) - 1) / 2;
+    const hue = (index * golden) % 1.0;
+    return new THREE.Color().setHSL(hue, 0.65, 0.45);
   }
 
-  async function loadPieces(paths: string[]) {
-    if (!scene || !controls || !camera) return;
-    clearPieces();
+  async function loadGLB(path: string): Promise<THREE.Group> {
+    const data = await readFile(path);
+    const buf = data.buffer.slice(
+      data.byteOffset,
+      data.byteOffset + data.byteLength,
+    );
+    return loader.parseAsync(buf, '');
+  }
+
+  function addMeshToScene(
+    mesh: THREE.Mesh,
+    color: THREE.Color,
+    offset?: THREE.Vector3,
+  ) {
+    mesh.material = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.4,
+      metalness: 0.1,
+    });
+    mesh.castShadow = true;
+    if (offset) mesh.position.copy(offset);
+    scene!.add(mesh);
+    meshes.push(mesh);
+  }
+
+  function fitCamera() {
+    if (!controls || !camera || meshes.length === 0) return;
+    const box = new THREE.Box3();
+    for (const m of meshes) box.expandByObject(m);
+    const size = box.getSize(new THREE.Vector3()).length();
+    const center = box.getCenter(new THREE.Vector3());
+    controls.target.copy(center);
+    camera.position.set(
+      center.x + size * 1.2,
+      center.y + size * 0.5,
+      center.z + size * 1.2,
+    );
+    controls.update();
+  }
+
+  async function loadSplitPieces(paths: string[]) {
+    if (!scene) return;
+    clearScene();
+
+    const centers: THREE.Vector3[] = [];
 
     for (let i = 0; i < paths.length; i++) {
       try {
-        const url = convertFileSrc(paths[i]);
-        const gltf = await loader.loadAsync(url);
-        gltf.scene.traverse((child) => {
+        const group = await loadGLB(paths[i]);
+        let box = new THREE.Box3();
+
+        group.traverse((child) => {
           if (child instanceof THREE.Mesh) {
-            const color = randomColor();
-            child.material = new THREE.MeshStandardMaterial({
-              color,
-              roughness: 0.4,
-              metalness: 0.1,
-              flatShading: false,
-            });
-            child.castShadow = true;
-            pieceMeshes.push(child);
-            scene!.add(child);
+            box.expandByObject(child);
+            const color = pieceColor(i);
+            addMeshToScene(child, color);
           }
         });
+
+        if (!box.isEmpty()) {
+          centers.push(box.getCenter(new THREE.Vector3()));
+        } else {
+          centers.push(new THREE.Vector3());
+        }
       } catch (err) {
         console.error(`Failed to load piece ${i}:`, err);
       }
     }
 
-    if (pieceMeshes.length > 0) {
-      const box = new THREE.Box3();
-      for (const m of pieceMeshes) {
-        box.expandByObject(m);
+    // Compute overall center and offset each piece outward
+    if (centers.length > 0) {
+      const avg = new THREE.Vector3();
+      for (const c of centers) avg.add(c);
+      avg.divideScalar(centers.length);
+
+      const offsetAmount = 0.008;
+      for (let i = 0; i < meshes.length && i < centers.length; i++) {
+        const dir = new THREE.Vector3()
+          .copy(centers[i])
+          .sub(avg)
+          .normalize();
+        // If piece is exactly at center, nudge upward
+        if (dir.length() < 0.001) dir.set(0, 1, 0);
+        meshes[i].position.add(dir.multiplyScalar(offsetAmount));
       }
-      const size = box.getSize(new THREE.Vector3()).length();
-      const center = box.getCenter(new THREE.Vector3());
-      controls.target.copy(center);
-      camera.position.set(
-        center.x + size * 1.2,
-        center.y + size * 0.5,
-        center.z + size * 1.2,
-      );
-      controls.update();
     }
+
+    fitCamera();
+  }
+
+  async function loadAssembled(path: string) {
+    if (!scene) return;
+    clearScene();
+
+    try {
+      const group = await loadGLB(path);
+      let idx = 0;
+      group.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          const color = pieceColor(idx++);
+          addMeshToScene(child, color);
+        }
+      });
+      // dispose the wrapper group
+      group.traverse((child) => {
+        if (child instanceof THREE.Group && child !== group) {
+          child.removeFromParent();
+        }
+      });
+    } catch (err) {
+      console.error('Failed to load assembled pieces:', err);
+    }
+
+    fitCamera();
   }
 
   $effect(() => {
-    if (ready && piecePaths.length > 0) {
-      loadPieces(piecePaths);
-    } else if (ready) {
-      clearPieces();
+    if (!ready) return;
+
+    if (viewMode === 'split' && piecePaths.length > 0) {
+      loadSplitPieces(piecePaths);
+    } else if (viewMode === 'assembled' && consolidatedPath) {
+      loadAssembled(consolidatedPath);
+    } else {
+      clearScene();
     }
   });
 
@@ -170,7 +249,7 @@
 </script>
 
 <div bind:this={container} class="viewer">
-  {#if piecePaths.length === 0}
+  {#if !piecePaths.length && !consolidatedPath}
     <div class="placeholder">
       <p>Select a model and click Slice to begin</p>
     </div>

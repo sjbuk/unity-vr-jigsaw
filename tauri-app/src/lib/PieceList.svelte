@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { PieceInfo } from '../types';
 
-  let { pieces = $bindable([]), resultDir = '' }: { pieces?: PieceInfo[]; resultDir?: string } = $props();
+  let { pieces = [] }: { pieces?: PieceInfo[] } = $props();
 </script>
 
 <div class="piece-list">
@@ -11,11 +11,6 @@
       <li>
         <span class="piece-index">#{piece.index}</span>
         <span class="piece-verts">{piece.vertices.toLocaleString()} verts</span>
-        <a
-          href={piece.path}
-          download={`piece_${String(piece.index).padStart(4, '0')}.glb`}
-          class="btn-download"
-        >Download</a>
       </li>
     {/each}
   </ul>
@@ -24,12 +19,13 @@
 <style>
   .piece-list {
     padding: 1rem;
-    border-top: 1px solid #333;
   }
   .piece-list h3 {
     margin: 0 0 0.5rem;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     color: #aaa;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
   ul {
     list-style: none;
@@ -37,15 +33,15 @@
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
-    max-height: 200px;
+    gap: 0.25rem;
+    max-height: 300px;
     overflow-y: auto;
   }
   li {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     padding: 0.25rem 0.5rem;
     background: #222;
     border-radius: 4px;
@@ -57,14 +53,5 @@
   }
   .piece-verts {
     color: #888;
-    flex: 1;
-  }
-  .btn-download {
-    padding: 0.2rem 0.6rem;
-    background: #4f8cff;
-    color: #fff;
-    border-radius: 4px;
-    text-decoration: none;
-    font-size: 0.75rem;
   }
 </style>

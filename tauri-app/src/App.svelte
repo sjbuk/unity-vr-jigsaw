@@ -5,7 +5,7 @@
   import PieceViewer from './lib/PieceViewer.svelte';
   import PieceList from './lib/PieceList.svelte';
   import { sliceModel } from './lib/api';
-  import type { SliceParams, SliceResult } from './types';
+  import type { SliceParams, SliceResult, ViewMode } from './types';
   import { DEFAULT_PARAMS } from './types';
 
   let params: SliceParams = $state({ ...DEFAULT_PARAMS });
@@ -13,6 +13,7 @@
   let result: SliceResult | null = $state(null);
   let progress = $state('');
   let error = $state('');
+  let viewMode: ViewMode = $state('split');
 
   $effect(() => {
     const unlisten = listen<string>('slice-progress', (event) => {
@@ -48,6 +49,7 @@
   }
 
   let piecePaths = $derived(result ? result.pieces.map(p => p.path) : []);
+  let consolidatedPath = $derived(result?.consolidated ?? '');
 </script>
 
 <div class="app-layout">
@@ -81,14 +83,28 @@
   </aside>
 
   <main class="main">
-    <PieceViewer bind:piecePaths />
+    <PieceViewer
+      bind:piecePaths
+      bind:consolidatedPath
+      bind:viewMode
+    />
   </main>
 
   {#if result}
     <aside class="results-panel">
-      <h2>Results</h2>
-      <p class="summary">{result.piece_count} pieces ({result.mode})</p>
-      <PieceList pieces={result.pieces} resultDir={result.output_dir} />
+      <div class="view-toggle">
+        <button
+          class="toggle-btn"
+          class:active={viewMode === 'split'}
+          onclick={() => (viewMode = 'split')}
+        >Split</button>
+        <button
+          class="toggle-btn"
+          class:active={viewMode === 'assembled'}
+          onclick={() => (viewMode = 'assembled')}
+        >Assembled</button>
+      </div>
+      <PieceList pieces={result.pieces} />
     </aside>
   {/if}
 </div>
@@ -154,18 +170,36 @@
     padding: 1rem;
     border-left: 1px solid #333;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
   }
-  .results-panel h2 {
+  .view-toggle {
+    display: flex;
+    gap: 0.25rem;
+    background: #2a2a3e;
+    border-radius: 6px;
+    padding: 2px;
+  }
+  .toggle-btn {
+    flex: 1;
+    padding: 0.4rem 0.5rem;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: #888;
     font-size: 0.8rem;
+    cursor: pointer;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #888;
-    margin: 0 0 0.5rem;
+    transition: all 0.15s;
   }
-  .summary {
-    font-size: 0.9rem;
-    color: #aaa;
-    margin: 0;
+  .toggle-btn.active {
+    background: #4f8cff;
+    color: #fff;
+  }
+  .toggle-btn:hover:not(.active) {
+    color: #ccc;
   }
   .progress {
     padding: 0.5rem;

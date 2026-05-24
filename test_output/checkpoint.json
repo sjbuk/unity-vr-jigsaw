@@ -1,0 +1,38 @@
+{
+  "source": "CesiumMilkTruck.glb",
+  "piece_count": 6,
+  "mode": "shell",
+  "gap": 0.001,
+  "peg_clearance": 0.003,
+  "shell_thickness": 0.02,
+  "tab_density": 0.3,
+  "seed": 42,
+  "total_bounds": {
+    "center": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "extents": [
+      0.5734342875120777,
+      0.5304920187138601,
+      1.0
+    ]
+  },
+  "seeds": [
+    3200,
+    1608,
+    2168,
+    2120,
+    194,
+    698
+  ],
+  "piece_vertex_counts": [
+    799,
+    832,
+    846,
+    783,
+    238,
+    1325
+  ]
+}

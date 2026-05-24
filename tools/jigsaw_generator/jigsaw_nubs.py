@@ -170,7 +170,10 @@ def apply_sinusoidal_tabs(
     Offset every patch's boundary vertices by a sinusoidal profile so that
     adjacent pieces interlock via convex tabs / concave slots.
     """
+    _top_counts = [getattr(p, "_top_face_count", 0) for p in patches]
     patches = [p.copy() for p in patches]
+    for p, tc in zip(patches, _top_counts):
+        p._top_face_count = tc
     verts_orig = mesh.vertices.astype(np.float64)
     norms_orig = mesh.vertex_normals.astype(np.float64)
     rng = np.random.default_rng(seed)

@@ -1,6 +1,7 @@
+use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::io::Read;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
@@ -12,7 +13,7 @@ const PYTHON_TOOLS_DIR: &str =
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SliceParams {
     pub input_path: String,
-    pub output_dir: String,
+    pub output_path: String,
     pub pieces: u32,
     pub mode: String,
     pub shell_thickness: f64,
@@ -80,7 +81,7 @@ async fn slice_model(
     std::fs::write(&config_path, &config_json).map_err(|e| e.to_string())?;
 
     // 4. Create output directory
-    std::fs::create_dir_all(&params.output_dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&params.output_path).map_err(|e| e.to_string())?;
 
     // 5. Spawn the Python subprocess
     let mut child = Command::new(python)
@@ -92,9 +93,11 @@ async fn slice_model(
         .spawn()
         .map_err(|e| format!("Failed to start Python: {e}"))?;
 
-    // 6. Read stderr (progress) and emit as events
+    // 6. Read stderr (progress + error capture) in a background thread
     let stderr = child.stderr.take().unwrap();
     let app_handle = app.clone();
+    let err_buf = Arc::new(Mutex::new(String::new()));
+    let err_buf_clone = err_buf.clone();
     std::thread::spawn(move || {
         let mut reader = std::io::BufReader::new(stderr);
         let mut line = String::new();
@@ -103,6 +106,8 @@ async fn slice_model(
             let trimmed = line.trim().to_string();
             if !trimmed.is_empty() {
                 let _ = app_handle.emit("slice-progress", &trimmed);
+                err_buf_clone.lock().unwrap().push_str(&trimmed);
+                err_buf_clone.lock().unwrap().push('\n');
             }
             line.clear();
         }
@@ -126,7 +131,13 @@ async fn slice_model(
     let _ = std::fs::remove_file(&config_path);
 
     if !status.success() {
-        return Err(format!("Python slicing failed with exit code: {:?}", status.code()));
+        let err = err_buf.lock().unwrap();
+        let detail = if err.is_empty() { "No error output".into() } else { err.clone() };
+        return Err(format!(
+            "Python slicing failed with exit code: {:?}\n--- stderr ---\n{}",
+            status.code(),
+            detail,
+        ));
     }
 
     // 10. Parse result JSON

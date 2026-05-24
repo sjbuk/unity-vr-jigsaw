@@ -36,7 +36,7 @@
     try {
       result = await sliceModel({
         ...params,
-        output_dir: outputDir,
+        output_path: outputDir,
       });
       progress = 'Done!';
     } catch (e) {

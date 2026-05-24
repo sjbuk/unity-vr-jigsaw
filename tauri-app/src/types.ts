@@ -1,6 +1,6 @@
 export interface SliceParams {
   input_path: string;
-  output_dir: string;
+  output_path: string;
   pieces: number;
   mode: 'shell' | 'full_3d';
   shell_thickness: number;
@@ -30,7 +30,7 @@ export interface SliceResult {
 
 export const DEFAULT_PARAMS: SliceParams = {
   input_path: '',
-  output_dir: '',
+  output_path: '',
   pieces: 24,
   mode: 'full_3d',
   shell_thickness: 0.02,

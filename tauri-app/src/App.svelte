@@ -1,11 +1,12 @@
 <script lang="ts">
   import { listen } from '@tauri-apps/api/event';
+  import { open } from '@tauri-apps/plugin-dialog';
   import FilePicker from './lib/FilePicker.svelte';
   import ParamForm from './lib/ParamForm.svelte';
   import PieceViewer from './lib/PieceViewer.svelte';
   import PieceList from './lib/PieceList.svelte';
-  import { sliceModel } from './lib/api';
-  import type { SliceParams, SliceResult, ViewMode } from './types';
+  import { sliceModel, readTextFile } from './lib/api';
+  import type { SliceParams, SliceResult, PieceInfo, ViewMode } from './types';
   import { DEFAULT_PARAMS } from './types';
 
   let params: SliceParams = $state({ ...DEFAULT_PARAMS });
@@ -14,6 +15,10 @@
   let progress = $state('');
   let error = $state('');
   let viewMode: ViewMode = $state('split');
+  let pieceVisibility = $state<boolean[]>([]);
+
+  let piecePaths: string[] = $derived(result ? result.pieces.map(p => p.path) : []);
+  let consolidatedPath: string = $derived(result?.consolidated ?? '');
 
   $effect(() => {
     const unlisten = listen<string>('slice-progress', (event) => {
@@ -31,14 +36,13 @@
     error = '';
     progress = 'Starting…';
     result = null;
+    pieceVisibility = [];
 
     const outputDir = `${params.input_path.replace(/\.[^.]+$/, '')}_pieces_${Date.now()}`;
 
     try {
-      result = await sliceModel({
-        ...params,
-        output_path: outputDir,
-      });
+      result = await sliceModel({ ...params, output_path: outputDir });
+      pieceVisibility = result.pieces.map(() => true);
       progress = 'Done!';
     } catch (e) {
       error = typeof e === 'string' ? e : String(e);
@@ -48,8 +52,46 @@
     }
   }
 
-  let piecePaths = $derived(result ? result.pieces.map(p => p.path) : []);
-  let consolidatedPath = $derived(result?.consolidated ?? '');
+  async function handleLoadFolder() {
+    const folder = await open({
+      directory: true,
+      multiple: false,
+    });
+    if (!folder) return;
+
+    const checkpointPath = `${folder}/checkpoint.json`;
+
+    try {
+      const text = await readTextFile(checkpointPath);
+      const data = JSON.parse(text);
+
+      const pieces: PieceInfo[] = [];
+      const counts: number[] = data.piece_vertex_counts ?? [];
+
+      const files = data.piece_count ?? counts.length;
+      for (let i = 0; i < files; i++) {
+        pieces.push({
+          index: i,
+          path: `${folder}/pieces/piece_${String(i).padStart(4, '0')}.glb`,
+          vertices: counts[i] ?? 0,
+        });
+      }
+
+      result = {
+        piece_count: pieces.length,
+        output_dir: folder,
+        consolidated: `${folder}/pieces.glb`,
+        checkpoint: checkpointPath,
+        pieces,
+        mode: data.mode ?? 'shell',
+      };
+
+      pieceVisibility = pieces.map(() => true);
+      error = '';
+    } catch (e) {
+      error = `Failed to load from folder: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
 </script>
 
 <div class="app-layout">
@@ -66,12 +108,12 @@
       <ParamForm bind:params />
     </section>
 
-    <button
-      class="btn btn-slice"
-      onclick={handleSlice}
-      disabled={slicing || !params.input_path}
-    >
+    <button class="btn btn-slice" onclick={handleSlice} disabled={slicing || !params.input_path}>
       {slicing ? 'Slicing…' : 'Slice'}
+    </button>
+
+    <button class="btn btn-secondary" onclick={handleLoadFolder}>
+      Load From Folder…
     </button>
 
     {#if progress && slicing}
@@ -87,6 +129,7 @@
       bind:piecePaths
       bind:consolidatedPath
       bind:viewMode
+      bind:pieceVisibility
     />
   </main>
 
@@ -94,17 +137,13 @@
     <aside class="results-panel">
       <div class="view-toggle">
         <button
-          class="toggle-btn"
-          class:active={viewMode === 'split'}
-          onclick={() => (viewMode = 'split')}
-        >Split</button>
+          class="toggle-btn" class:active={viewMode === 'split'}
+          onclick={() => (viewMode = 'split')}>Split</button>
         <button
-          class="toggle-btn"
-          class:active={viewMode === 'assembled'}
-          onclick={() => (viewMode = 'assembled')}
-        >Assembled</button>
+          class="toggle-btn" class:active={viewMode === 'assembled'}
+          onclick={() => (viewMode = 'assembled')}>Assembled</button>
       </div>
-      <PieceList pieces={result.pieces} />
+      <PieceList pieces={result.pieces} bind:visible={pieceVisibility} />
     </aside>
   {/if}
 </div>
@@ -121,7 +160,7 @@
     padding: 1rem;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
     overflow-y: auto;
     border-right: 1px solid #333;
   }
@@ -153,13 +192,19 @@
     cursor: pointer;
     transition: background 0.15s;
   }
-  .btn-slice:hover:not(:disabled) {
-    background: #3a7bff;
+  .btn-slice:hover:not(:disabled) { background: #3a7bff; }
+  .btn-slice:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-secondary {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    background: #2a2a3e;
+    color: #ccc;
+    border: 1px solid #444;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
   }
-  .btn-slice:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
+  .btn-secondary:hover { background: #333; }
   .main {
     flex: 1;
     position: relative;
@@ -169,10 +214,10 @@
     background: #1e1e2e;
     padding: 1rem;
     border-left: 1px solid #333;
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
+    overflow: hidden;
   }
   .view-toggle {
     display: flex;
@@ -180,6 +225,7 @@
     background: #2a2a3e;
     border-radius: 6px;
     padding: 2px;
+    flex-shrink: 0;
   }
   .toggle-btn {
     flex: 1;
@@ -194,13 +240,8 @@
     letter-spacing: 0.05em;
     transition: all 0.15s;
   }
-  .toggle-btn.active {
-    background: #4f8cff;
-    color: #fff;
-  }
-  .toggle-btn:hover:not(.active) {
-    color: #ccc;
-  }
+  .toggle-btn.active { background: #4f8cff; color: #fff; }
+  .toggle-btn:hover:not(.active) { color: #ccc; }
   .progress {
     padding: 0.5rem;
     background: #2a2a3e;

@@ -5,6 +5,7 @@
   import ParamForm from './lib/ParamForm.svelte';
   import PieceViewer from './lib/PieceViewer.svelte';
   import PieceList from './lib/PieceList.svelte';
+  import { exists } from '@tauri-apps/plugin-fs';
   import { sliceModel, readTextFile } from './lib/api';
   import type { SliceParams, SliceResult, PieceInfo, ViewMode } from './types';
   import { DEFAULT_PARAMS } from './types';
@@ -15,6 +16,7 @@
   let progress = $state('');
   let error = $state('');
   let viewMode: ViewMode = $state('split');
+  let showTexture = $state(false);
   let pieceVisibility = $state<boolean[]>([]);
 
   let piecePaths: string[] = $derived(result ? result.pieces.map(p => p.path) : []);
@@ -38,7 +40,26 @@
     result = null;
     pieceVisibility = [];
 
-    const outputDir = `${params.input_path.replace(/\.[^.]+$/, '')}_pieces_${Date.now()}`;
+    const sep = params.input_path.includes('\\') ? '\\' : '/';
+    const dir = params.input_path.substring(0, params.input_path.lastIndexOf(sep));
+    const basename = params.input_path.substring(params.input_path.lastIndexOf(sep) + 1, params.input_path.lastIndexOf('.'));
+    const countStr = String(params.pieces).padStart(4, '0');
+    const modeLabel = params.mode === 'full_3d' ? 'full' : 'shell';
+
+    let outputDir = '';
+    let counter = 0;
+    while (true) {
+      const candidate = `${dir}${sep}${basename}_${modeLabel}_pieces_${countStr}_${String(counter).padStart(3, '0')}`;
+      if (!(await exists(candidate))) {
+        outputDir = candidate;
+        break;
+      }
+      counter++;
+      if (counter > 999) {
+        outputDir = `${dir}${sep}${basename}_${modeLabel}_pieces_${countStr}_${Date.now()}`;
+        break;
+      }
+    }
 
     try {
       result = await sliceModel({ ...params, output_path: outputDir });
@@ -129,7 +150,8 @@
       bind:piecePaths
       bind:consolidatedPath
       bind:viewMode
-      bind:pieceVisibility
+      bind:pieceVisible={pieceVisibility}
+      bind:showTexture
     />
   </main>
 
@@ -142,6 +164,11 @@
         <button
           class="toggle-btn" class:active={viewMode === 'assembled'}
           onclick={() => (viewMode = 'assembled')}>Assembled</button>
+      </div>
+      <div class="texture-toggle">
+        <button
+          class="toggle-btn" class:active={showTexture}
+          onclick={() => (showTexture = !showTexture)}>Textures</button>
       </div>
       <PieceList pieces={result.pieces} bind:visible={pieceVisibility} />
     </aside>

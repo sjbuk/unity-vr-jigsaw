@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as THREE from 'three';
   import type { PieceInfo } from '../types';
 
   let {
@@ -8,6 +9,10 @@
     pieces?: PieceInfo[];
     visible?: boolean[];
   } = $props();
+
+  function pieceColor(index: number): string {
+    return new THREE.Color().setHSL((index * 0.618033988749895) % 1.0, 0.65, 0.45).getStyle();
+  }
 
   function toggle(idx: number) {
     visible[idx] = !visible[idx];
@@ -26,8 +31,8 @@
         onkeydown={(e) => e.key === 'Enter' && toggle(i)}
         tabindex="0"
       >
-        <span class="dot" class:off={i < visible.length && !visible[i]}>●</span>
-        <span class="piece-index">#{piece.index}</span>
+        <span class="dot" class:off={i < visible.length && !visible[i]} style="color: {i < visible.length && !visible[i] ? '#555' : pieceColor(piece.index)}">●</span>
+        <span class="piece-index" style="color: {pieceColor(piece.index)}">#{piece.index}</span>
         <span class="piece-verts">{piece.vertices.toLocaleString()} verts</span>
       </li>
     {/each}
@@ -79,14 +84,12 @@
     opacity: 0.35;
   }
   .dot {
-    color: #4f8cff;
     font-size: 0.6rem;
   }
   .dot.off {
     color: #555;
   }
   .piece-index {
-    color: #4f8cff;
     font-weight: 600;
     min-width: 2.5rem;
   }

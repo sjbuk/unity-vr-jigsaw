@@ -9,6 +9,3 @@ export async function readTextFile(path: string): Promise<string> {
   return invoke<string>('read_text_file', { path });
 }
 
-export async function readBinaryFile(path: string): Promise<string> {
-  return invoke<string>('read_binary_file', { path });
-}

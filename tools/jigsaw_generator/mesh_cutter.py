@@ -95,14 +95,30 @@ def _boolean(op: str, meshes: list[trimesh.Trimesh]) -> trimesh.Trimesh:
 # ---------------------------------------------------------------------------
 
 def surface_to_volume(
-    patch: trimesh.Trimesh, depth: float
+    patch: trimesh.Trimesh, depth: float,
+    original_mesh: trimesh.Trimesh | None = None,
 ) -> trimesh.Trimesh:
     """
     Convert an open surface patch into a closed volume by extruding
     inward along vertex normals by *depth* and capping the result.
+
+    When *original_mesh* is provided, boundary-vertex normals are
+    looked up from the original mesh so that adjacent patches extrude
+    in exactly the same direction at their shared seam, preventing
+    polygon loss during boolean intersection.
     """
     patch = patch.copy()
     patch.merge_vertices()
+
+    verts_top = patch.vertices.copy()
+    faces_top = patch.faces.copy()
+    n_top = len(verts_top)
+
+    # boundary edges  (edges that appear only once)
+    all_edges = patch.edges
+    sorted_edges = np.sort(all_edges, axis=1)
+    unique_edges, counts = np.unique(sorted_edges, axis=0, return_counts=True)
+    boundary_edges = unique_edges[counts == 1]
 
     normals = patch.vertex_normals.copy()
     normals[np.isnan(normals)] = 0.0
@@ -110,17 +126,16 @@ def surface_to_volume(
     if np.any(nan_mask):
         normals[nan_mask] = np.array([0.0, 0.0, 1.0])
 
-    verts_top = patch.vertices.copy()
-    faces_top = patch.faces.copy()
-    n_top = len(verts_top)
+    # Override boundary vertex normals with original mesh normals
+    # so both adjacent pieces extrude their shared seam identically,
+    # eliminating the wedge gap that drops polygons.
+    if original_mesh is not None and len(boundary_edges) > 0:
+        boundary_verts = np.unique(boundary_edges.ravel()).astype(np.int64)
+        tree = KDTree(original_mesh.vertices)
+        _, orig_indices = tree.query(verts_top[boundary_verts])
+        normals[boundary_verts] = original_mesh.vertex_normals[orig_indices]
 
     verts_bottom = verts_top - normals * depth
-
-    # boundary edges  (edges that appear only once)
-    all_edges = patch.edges
-    sorted_edges = np.sort(all_edges, axis=1)
-    unique_edges, counts = np.unique(sorted_edges, axis=0, return_counts=True)
-    boundary_edges = unique_edges[counts == 1]
 
     wall_faces: list[list[int]] = []
     for e in boundary_edges:
@@ -315,7 +330,7 @@ def cut_pieces_full_3d(
     depth = np.linalg.norm(mesh.bounding_box.extents) * 0.8
 
     for i, patch in enumerate(patches):
-        vol = surface_to_volume(patch, depth)
+        vol = surface_to_volume(patch, depth, original_mesh=mesh)
         volumes.append(vol)
         if (i + 1) % 10 == 0 or (i + 1) == n_pieces:
             print(f"           … {i + 1}/{n_pieces} volumes created", flush=True)
@@ -374,18 +389,16 @@ def cut_pieces_shell(
     """
     Process pre-extruded shell pieces (from Phase 2 + Phase 3 tabs).
 
-    Steps: inflect for gap, cap, detect cut faces, apply triplanar UVs.
-    Uses structural knowledge (_top_face_count) for reliable cut-face
-    detection, falling back to distance-based KDTree if unavailable.
+    For non-watertight source meshes the extrusion can create non-manifold
+    edges when walls are stitched around original-mesh boundary holes.
+    Inflection and hole-capping both make this worse, so they are skipped
+    here — the shell pieces are used exactly as extruded.
     """
     print("[Phase 4] Processing shell pieces …")
     kdtree = KDTree(mesh.triangles_center)
     distance_threshold = max(config.shell_thickness * 0.5, config.gap * 10)
     final: list[trimesh.Trimesh] = []
     for i, piece in enumerate(pieces):
-        piece = _inflect(piece, config.gap / 2.0)
-        piece = cap_mesh(piece)
-
         top_face_count = getattr(piece, "_top_face_count", 0)
         if top_face_count > 0 and top_face_count < len(piece.faces):
             cut_mask = np.ones(len(piece.faces), dtype=bool)

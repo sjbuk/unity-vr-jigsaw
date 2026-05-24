@@ -18,6 +18,7 @@ import warnings
 
 import numpy as np
 import trimesh
+from scipy.spatial import KDTree
 
 try:
     from .geometry_utils import (
@@ -259,11 +260,16 @@ class FloodFillPartitioner:
     # ------------------------------------------------------------------
 
     def extrude_patch(
-        self, patch: trimesh.Trimesh, thickness: float, gap: float = 0.0
+        self, patch: trimesh.Trimesh, thickness: float, gap: float = 0.0,
+        original_mesh: trimesh.Trimesh | None = None,
     ) -> trimesh.Trimesh:
         """
         Extrude a surface patch inward by *thickness* to create a thin
         watertight solid.
+
+        When *original_mesh* is provided, boundary-vertex normals are
+        looked up from the original mesh so that adjacent patches extrude
+        in the same direction at their shared seam, preventing polygon loss.
 
         Returns a closed trimesh that can be used directly as a puzzle piece.
         """
@@ -280,10 +286,8 @@ class FloodFillPartitioner:
         nan_mask = np.all(normals == 0.0, axis=1)
         if np.any(nan_mask):
             normals[nan_mask] = np.array([0.0, 0.0, 1.0])
-        n_top = len(verts_top)
 
-        verts_bottom = verts_top - normals * thickness
-
+        # boundary edges first so we can override normals before extrusion
         all_edges = patch.edges
         sorted_edges = np.sort(all_edges, axis=1)
         unique_edges, counts = np.unique(
@@ -295,6 +299,17 @@ class FloodFillPartitioner:
                 "building side walls on them — result may be non-manifold"
             )
         boundary_edges = unique_edges[(counts == 1) | (counts > 2)]
+
+        # Override boundary vertex normals with original mesh normals
+        # so adjacent patches extrude identically at their shared seam
+        if original_mesh is not None and len(boundary_edges) > 0:
+            boundary_verts = np.unique(boundary_edges.ravel()).astype(np.int64)
+            tree = KDTree(original_mesh.vertices)
+            _, orig_indices = tree.query(verts_top[boundary_verts])
+            normals[boundary_verts] = original_mesh.vertex_normals[orig_indices]
+
+        n_top = len(verts_top)
+        verts_bottom = verts_top - normals * thickness
 
         side_faces: list[list[int]] = []
         for e in boundary_edges:
@@ -323,18 +338,6 @@ class FloodFillPartitioner:
         extruded.visual = trimesh.visual.texture.TextureVisuals(uv=all_uv)
         if hasattr(patch.visual, "material") and patch.visual.material is not None:
             extruded.visual.material = patch.visual.material
-        extruded.merge_vertices()
-
-        if not extruded.is_watertight:
-            extruded.fill_holes()
-        if not extruded.is_watertight:
-            if not extruded.is_volume:
-                warnings.warn("Extruded patch has open boundaries; may contain visible holes")
-            else:
-                warnings.warn(
-                    "Extruded patch is closed but non-manifold "
-                    "(rendering will be unaffected)"
-                )
 
         if gap > 0.0:
             extruded = _shrink_mesh(extruded, gap)

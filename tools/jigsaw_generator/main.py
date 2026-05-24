@@ -121,7 +121,8 @@ def run_phase2(
             f"{config.shell_thickness} …"
         )
         shell_pieces = [
-            partitioner.extrude_patch(p, config.shell_thickness, config.gap)
+            partitioner.extrude_patch(p, config.shell_thickness, config.gap,
+                                       original_mesh=partitioner.working_mesh)
             for p in patches
         ]
         print(f"[Phase 2] Created {len(shell_pieces)} extruded shell pieces.")

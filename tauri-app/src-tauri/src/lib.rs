@@ -93,34 +93,36 @@ async fn slice_model(
         .spawn()
         .map_err(|e| format!("Failed to start Python: {e}"))?;
 
-    // 6. Read stderr (progress + error capture) in a background thread
+    // 6. Read stderr (progress + error capture) in a background thread.
+    //    Use binary reads to avoid UTF-8 decoding failures on Windows.
     let stderr = child.stderr.take().unwrap();
     let app_handle = app.clone();
     let err_buf = Arc::new(Mutex::new(String::new()));
     let err_buf_clone = err_buf.clone();
     std::thread::spawn(move || {
-        let mut reader = std::io::BufReader::new(stderr);
-        let mut line = String::new();
         use std::io::BufRead;
-        while reader.read_line(&mut line).unwrap_or(0) > 0 {
-            let trimmed = line.trim().to_string();
-            if !trimmed.is_empty() {
-                let _ = app_handle.emit("slice-progress", &trimmed);
-                err_buf_clone.lock().unwrap().push_str(&trimmed);
+        let mut reader = std::io::BufReader::new(stderr);
+        let mut buf: Vec<u8> = Vec::new();
+        while reader.read_until(b'\n', &mut buf).unwrap_or(0) > 0 {
+            let line = String::from_utf8_lossy(&buf).trim().to_string();
+            if !line.is_empty() {
+                let _ = app_handle.emit("slice-progress", &line);
+                err_buf_clone.lock().unwrap().push_str(&line);
                 err_buf_clone.lock().unwrap().push('\n');
             }
-            line.clear();
+            buf.clear();
         }
     });
 
-    // 7. Read stdout (result JSON)
-    let mut stdout = String::new();
+    // 7. Read stdout as raw bytes (handles non-UTF-8 on Windows)
+    let mut stdout_bytes: Vec<u8> = Vec::new();
     child
         .stdout
         .take()
         .unwrap()
-        .read_to_string(&mut stdout)
+        .read_to_end(&mut stdout_bytes)
         .map_err(|e| e.to_string())?;
+    let stdout = String::from_utf8_lossy(&stdout_bytes).to_string();
 
     // 8. Wait for exit
     let status = child

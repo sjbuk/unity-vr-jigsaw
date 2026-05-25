@@ -14,12 +14,16 @@ class Config:
     gap: float = 0.001
     seed: int | None = None
     reassign_orphans: bool = True
+    adjacency_threshold: float = 0.01
+    preview_resolution: int = 512
 
     def validate(self) -> None:
         if self.pieces < 2:
             raise ValueError("pieces must be >= 2")
         if self.gap < 0.0:
             raise ValueError("gap must be >= 0")
+        if self.adjacency_threshold < 0.0:
+            raise ValueError("adjacency_threshold must be >= 0")
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "Config":
@@ -30,6 +34,8 @@ class Config:
             gap=args.gap,
             seed=args.seed,
             reassign_orphans=not args.no_reassign_orphans,
+            adjacency_threshold=args.adjacency_threshold,
+            preview_resolution=args.preview_resolution,
         )
 
 
@@ -45,4 +51,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=None, help="Integer seed for reproducible slicing")
     parser.add_argument("--no-reassign-orphans", action="store_true",
                         help="Skip orphan fragment reassignment (default: on)")
+    parser.add_argument("--adjacency-threshold", type=float, default=0.01,
+                        help="AABB expansion for neighbour detection (default: 0.01)")
+    parser.add_argument("--preview-resolution", type=int, default=512,
+                        help="Preview thumbnail resolution in pixels (default: 512)")
     return parser

@@ -17,6 +17,7 @@ from planar_phase_010 import load_model, normalize_mesh
 from planar_phase_021 import cut_pieces_planar
 from planar_phase_022 import reassign_orphans
 from planar_phase_030 import bake_backface_colours
+from planar_phase_040 import compute_adjacency, generate_preview
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +115,36 @@ def export_results(
     piece_centroids = [p.triangles_center.mean(axis=0) for p in final_pieces]
     piece_vertex_counts = [len(p.vertices) for p in final_pieces]
 
+    # Phase 4: adjacency and preview
+    print("[Phase 4] Computing piece adjacency …", file=sys.stderr, flush=True)
+    adjacency = compute_adjacency(
+        final_pieces,
+        centroid_list=piece_centroids,
+        threshold=config.adjacency_threshold,
+    )
+    print(
+        f"[Phase 4]   {len(adjacency)} directed neighbour edges found",
+        file=sys.stderr,
+        flush=True,
+    )
+
+    print("[Phase 4] Generating preview thumbnail …", file=sys.stderr, flush=True)
+    preview_path = os.path.join(out, "preview.png")
+    preview_ok = generate_preview(
+        final_pieces,
+        preview_path,
+        resolution=config.preview_resolution,
+    )
+    if preview_ok:
+        print(f"[Phase 4]   preview written", file=sys.stderr, flush=True)
+    else:
+        print(
+            "[Phase 4]   WARNING: placeholder preview generated "
+            "(install pyrender for real renders)",
+            file=sys.stderr,
+            flush=True,
+        )
+
     checkpoint = {
         "source": os.path.basename(config.input_path),
         "piece_count": config.pieces,
@@ -125,6 +156,7 @@ def export_results(
         },
         "piece_centroids": [c.tolist() for c in piece_centroids],
         "piece_vertex_counts": piece_vertex_counts,
+        "adjacency": adjacency,
     }
     checkpoint_path = os.path.join(out, "checkpoint.json")
     with open(checkpoint_path, "w") as f:
@@ -161,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
     print("[Phase 3] Baking back-face colours …")
     back_pieces = bake_backface_colours(final_pieces, config.output_path)
 
+    print("[Phase 4] Computing adjacency & generating preview …")
     export_results(config, mesh, final_pieces, back_pieces)
 
     print(f"\n[Done] Output directory: {config.output_path}")

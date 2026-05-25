@@ -24,7 +24,7 @@ export interface SliceResult {
   colour_atlas?: string;
 }
 
-export type ViewMode = 'split' | 'assembled';
+export type ViewMode = 'split' | 'assembled' | 'simulate';
 
 export const DEFAULT_PARAMS: SliceParams = {
   input_path: '',

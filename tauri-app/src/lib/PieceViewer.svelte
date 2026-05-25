@@ -31,8 +31,18 @@
 
   const meshes: THREE.Mesh[] = [];
   const originalMaterials: (THREE.Material | THREE.Material[] | null)[] = [];
-  const meshPieceIndex: number[] = [];
-  let loader: GLTFLoader;
+const meshPieceIndex: number[] = [];
+let loader: GLTFLoader;
+
+let raycaster: THREE.Raycaster | null = null;
+let draggedPieceIndex: number | null = null;
+let dragOffset = new THREE.Vector3();
+let dragPlane = new THREE.Plane();
+let snappedPieces = new Set<number>();
+let pieceTargets: Map<number, { pos: THREE.Vector3; quat: THREE.Quaternion }> = new Map();
+let mouseNDC = new THREE.Vector2();
+let isSimDragging = false;
+let cleanupSimListeners: (() => void) | null = null;
 
   function init() {
     if (!container) return;
@@ -114,6 +124,152 @@
     for (let i = 0; i < meshes.length; i++) {
       applyMeshMaterial(meshes[i], meshPieceIndex[i], i);
     }
+  }
+
+  const snapRadius = 0.2;
+
+  function arrangeOnWall() {
+    if (pieceTargets.size === 0 || meshes.length === 0) return;
+    const bbox = new THREE.Box3();
+    for (const [, target] of pieceTargets) {
+      bbox.expandByPoint(target.pos);
+    }
+    const center = bbox.getCenter(new THREE.Vector3());
+    const size = bbox.getSize(new THREE.Vector3());
+    const n = pieceTargets.size;
+    const cols = Math.ceil(Math.sqrt(n));
+    const rows = Math.ceil(n / cols);
+
+    const pieceApprox = Math.max(size.x, size.y) / Math.max(cols, rows);
+    const cellSize = Math.max(pieceApprox * 4.0, 0.4);
+
+    const gridHeight = (rows - 1) * cellSize;
+    const minY = center.y - gridHeight / 2;
+    const yOffset = Math.max(0, 0.1 - minY);
+
+    const sortedIndices = Array.from(pieceTargets.keys()).sort((a, b) => a - b);
+    for (let i = 0; i < sortedIndices.length; i++) {
+      const pieceIdx = sortedIndices[i];
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const offsetX = (col - (cols - 1) / 2) * cellSize;
+      const offsetY = ((rows - 1) / 2 - row) * cellSize;
+      const pos = new THREE.Vector3(
+        center.x + offsetX,
+        center.y + offsetY + yOffset,
+        center.z,
+      );
+      for (let j = 0; j < meshes.length; j++) {
+        if (meshPieceIndex[j] === pieceIdx) {
+          meshes[j].position.copy(pos);
+        }
+      }
+    }
+  }
+
+  function setupSimListeners() {
+    cleanupSimListeners?.();
+    if (!renderer || !camera || !controls) return;
+    const el = renderer.domElement;
+
+    const camDir = new THREE.Vector3();
+    const planeHit = new THREE.Vector3();
+    const screenTarget = new THREE.Vector3();
+
+    const updateMouseFromEvent = (e: PointerEvent) => {
+      const rect = el.getBoundingClientRect();
+      mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (!raycaster) return;
+      updateMouseFromEvent(e);
+      raycaster.setFromCamera(mouseNDC, camera!);
+      const draggableIndices: number[] = [];
+      for (let i = 0; i < meshes.length; i++) {
+        if (!snappedPieces.has(meshPieceIndex[i])) {
+          draggableIndices.push(i);
+        }
+      }
+      const draggable = draggableIndices.map((i) => meshes[i]);
+      const intersects = raycaster.intersectObjects(draggable, false);
+      if (intersects.length > 0) {
+        const obj = intersects[0].object as THREE.Mesh;
+        const idx = meshes.indexOf(obj);
+        if (idx >= 0) {
+          draggedPieceIndex = meshPieceIndex[idx];
+          isSimDragging = true;
+          controls!.enabled = false;
+          camera!.getWorldDirection(camDir);
+          dragPlane.setFromNormalAndCoplanarPoint(camDir, obj.position);
+          if (raycaster.ray.intersectPlane(dragPlane, planeHit)) {
+            dragOffset.copy(obj.position).sub(planeHit);
+          }
+          e.stopPropagation();
+          e.preventDefault();
+        }
+      }
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!isSimDragging || draggedPieceIndex === null) return;
+      updateMouseFromEvent(e);
+      raycaster!.setFromCamera(mouseNDC, camera!);
+      if (raycaster!.ray.intersectPlane(dragPlane, planeHit)) {
+        camDir.copy(planeHit).add(dragOffset);
+        for (let i = 0; i < meshes.length; i++) {
+          if (meshPieceIndex[i] === draggedPieceIndex) {
+            meshes[i].position.copy(camDir);
+          }
+        }
+
+        const target = pieceTargets.get(draggedPieceIndex);
+        if (target) {
+          screenTarget.copy(target.pos).project(camera!);
+          const dx = screenTarget.x - mouseNDC.x;
+          const dy = screenTarget.y - mouseNDC.y;
+          const distScreen = Math.sqrt(dx * dx + dy * dy);
+          if (camDir.distanceTo(target.pos) < snapRadius || distScreen < 0.08) {
+            for (let i = 0; i < meshes.length; i++) {
+              if (meshPieceIndex[i] === draggedPieceIndex) {
+                meshes[i].position.copy(target.pos);
+                meshes[i].quaternion.copy(target.quat);
+              }
+            }
+            snappedPieces.add(draggedPieceIndex);
+            isSimDragging = false;
+            draggedPieceIndex = null;
+            controls!.enabled = true;
+            e.stopPropagation();
+            e.preventDefault();
+            return;
+          }
+        }
+      }
+      e.stopPropagation();
+      e.preventDefault();
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (isSimDragging) {
+        isSimDragging = false;
+        draggedPieceIndex = null;
+        controls!.enabled = true;
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    };
+
+    el.addEventListener('pointerdown', onPointerDown, { capture: true });
+    el.addEventListener('pointermove', onPointerMove, { capture: true });
+    el.addEventListener('pointerup', onPointerUp, { capture: true });
+
+    cleanupSimListeners = () => {
+      el.removeEventListener('pointerdown', onPointerDown, { capture: true });
+      el.removeEventListener('pointermove', onPointerMove, { capture: true });
+      el.removeEventListener('pointerup', onPointerUp, { capture: true });
+    };
   }
 
   function fitCamera() {
@@ -233,17 +389,65 @@
       }
 
       let fallbackIdx = 0;
+      const found: THREE.Mesh[] = [];
       gltf.scene.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-          const nameMatch = child.name.match(/^piece_(\d+)/);
-          const pieceIdx = nameMatch ? parseInt(nameMatch[1], 10) : fallbackIdx++;
-          addMesh(child, pieceIdx);
+          found.push(child);
         }
       });
+      for (const child of found) {
+        const nameMatch = child.name.match(/^piece_(\d+)/);
+        const pieceIdx = nameMatch ? parseInt(nameMatch[1], 10) : fallbackIdx++;
+        addMesh(child, pieceIdx);
+      }
       applyVisibility();
       fitCamera();
     } catch (err) {
       loadError = `Assembled: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  async function loadSimulate(path: string) {
+    const gen = ++loadingGen;
+    if (!scene) return;
+    clearScene();
+    snappedPieces.clear();
+    pieceTargets.clear();
+    isSimDragging = false;
+    draggedPieceIndex = null;
+    if (!raycaster) raycaster = new THREE.Raycaster();
+
+    try {
+      const url = convertFileSrc(path);
+      const gltf = await loader.loadAsync(url);
+      if (gen !== loadingGen) return;
+      if (!gltf || !gltf.scene) {
+        throw new Error('Failed to parse GLB: scene missing');
+      }
+
+      let fallbackIdx = 0;
+      const found: THREE.Mesh[] = [];
+      gltf.scene.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          found.push(child);
+        }
+      });
+      for (const child of found) {
+        const nameMatch = child.name.match(/^piece_(\d+)/);
+        const pieceIdx = nameMatch ? parseInt(nameMatch[1], 10) : fallbackIdx++;
+        pieceTargets.set(pieceIdx, {
+          pos: child.position.clone(),
+          quat: child.quaternion.clone(),
+        });
+        addMesh(child, pieceIdx);
+      }
+
+      arrangeOnWall();
+      applyVisibility();
+      fitCamera();
+      setupSimListeners();
+    } catch (err) {
+      loadError = `Simulate: ${err instanceof Error ? err.message : String(err)}`;
     }
   }
 
@@ -261,6 +465,8 @@
       loadSplitPieces(paths, bpaths);
     } else if (mode === 'assembled' && cpath) {
       loadAssembled(cpath);
+    } else if (mode === 'simulate' && cpath) {
+      loadSimulate(cpath);
     } else {
       clearScene();
     }
@@ -274,6 +480,18 @@
   $effect(() => {
     showTexture;
     if (meshes.length > 0) updateMaterials();
+  });
+
+  $effect(() => {
+    if (viewMode !== 'simulate') {
+      cleanupSimListeners?.();
+      cleanupSimListeners = null;
+      isSimDragging = false;
+      draggedPieceIndex = null;
+      snappedPieces.clear();
+      pieceTargets.clear();
+      if (controls) controls.enabled = true;
+    }
   });
 </script>
 

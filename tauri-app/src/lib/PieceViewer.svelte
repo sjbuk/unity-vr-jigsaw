@@ -7,12 +7,14 @@
 
   let {
     piecePaths = $bindable([]),
+    backPiecePaths = $bindable([]),
     consolidatedPath = $bindable(''),
     viewMode = $bindable<ViewMode>('split'),
     pieceVisible = $bindable<boolean[]>([]),
     showTexture = $bindable(false),
   }: {
     piecePaths?: string[];
+    backPiecePaths?: string[];
     consolidatedPath?: string;
     viewMode?: ViewMode;
     pieceVisible?: boolean[];
@@ -139,11 +141,12 @@
 
   function applyVisibility() {
     for (let i = 0; i < meshes.length; i++) {
-      meshes[i].visible = i < pieceVisible.length ? pieceVisible[i] : true;
+      const pieceIdx = meshPieceIndex[i];
+      meshes[i].visible = pieceIdx < pieceVisible.length ? pieceVisible[pieceIdx] : true;
     }
   }
 
-  async function loadSplitPieces(paths: string[]) {
+  async function loadSplitPieces(frontPaths: string[], backPaths: string[]) {
     const gen = ++loadingGen;
     if (!scene) return;
     clearScene();
@@ -154,8 +157,16 @@
       index: number;
     };
 
+    const allPaths: { path: string; index: number }[] = [];
+    for (let i = 0; i < frontPaths.length; i++) {
+      allPaths.push({ path: frontPaths[i], index: i });
+    }
+    for (let i = 0; i < backPaths.length; i++) {
+      allPaths.push({ path: backPaths[i], index: i });
+    }
+
     const results = await Promise.all(
-      paths.map(async (path, i) => {
+      allPaths.map(async ({ path, index }) => {
         try {
           const url = convertFileSrc(path);
           const gltf = await loader.loadAsync(url);
@@ -169,9 +180,9 @@
               found.push(child);
             }
           });
-          return { meshes: found, center: box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3()), index: i } satisfies LoadResult;
+          return { meshes: found, center: box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3()), index } satisfies LoadResult;
         } catch (err) {
-          console.error(`Piece ${i}:`, err);
+          console.error(`Piece ${index}:`, err);
           return null;
         }
       }),
@@ -185,15 +196,17 @@
       for (const m of r.meshes) {
         addMesh(m, r.index);
       }
-      centers[r.index] = r.center;
+      if (!centers[r.index]) centers[r.index] = r.center;
     }
 
     if (centers.length > 0) {
+      const validCenters = centers.filter(Boolean);
       const avg = new THREE.Vector3();
-      for (const c of centers) if (c) avg.add(c);
-      avg.divideScalar(centers.length);
-      for (let i = 0; i < meshes.length && i < centers.length; i++) {
-        const c = centers[i];
+      for (const c of validCenters) avg.add(c);
+      avg.divideScalar(validCenters.length);
+      for (let i = 0; i < meshes.length; i++) {
+        const pieceIdx = meshPieceIndex[i];
+        const c = centers[pieceIdx];
         if (!c) continue;
         const dir = new THREE.Vector3().copy(c).sub(avg).normalize();
         if (dir.length() < 0.001) dir.set(0, 1, 0);
@@ -215,9 +228,17 @@
       const gltf = await loader.loadAsync(url);
       if (gen !== loadingGen) return;
 
-      let idx = 0;
+      if (!gltf || !gltf.scene) {
+        throw new Error('Failed to parse GLB: scene missing');
+      }
+
+      let fallbackIdx = 0;
       gltf.scene.traverse((child) => {
-        if (child instanceof THREE.Mesh) addMesh(child, idx++);
+        if (child instanceof THREE.Mesh) {
+          const nameMatch = child.name.match(/^piece_(\d+)/);
+          const pieceIdx = nameMatch ? parseInt(nameMatch[1], 10) : fallbackIdx++;
+          addMesh(child, pieceIdx);
+        }
       });
       applyVisibility();
       fitCamera();
@@ -228,6 +249,7 @@
 
   $effect(() => {
     const paths = piecePaths;
+    const bpaths = backPiecePaths;
     const cpath = consolidatedPath;
     const mode = viewMode;
 
@@ -236,7 +258,7 @@
     if (!scene) return;
 
     if (mode === 'split' && paths.length > 0) {
-      loadSplitPieces(paths);
+      loadSplitPieces(paths, bpaths);
     } else if (mode === 'assembled' && cpath) {
       loadAssembled(cpath);
     } else {

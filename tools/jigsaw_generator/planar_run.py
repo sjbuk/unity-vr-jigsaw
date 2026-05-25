@@ -17,6 +17,7 @@ from planar_lib import Config
 from planar_main import run_ingest, export_results
 from planar_phase_021 import cut_pieces_planar
 from planar_phase_022 import reassign_orphans
+from planar_phase_030 import bake_backface_colours
 
 
 def _log(msg: str) -> None:
@@ -48,6 +49,9 @@ def main() -> int:
         print(json.dumps({"error": str(e)}), file=sys.stdout)
         return 1
 
+    config.output_path = os.path.normpath(config.output_path)
+    os.makedirs(config.output_path, exist_ok=True)
+
     with contextlib.redirect_stdout(sys.stderr):
         _log("[Phase 1] Loading and normalizing model…")
         mesh = run_ingest(config)
@@ -59,24 +63,33 @@ def main() -> int:
             _log("[Phase 2] Reassigning orphan fragments…")
             final_pieces = reassign_orphans(final_pieces)
 
+        _log("[Phase 3] Baking back-face colours…")
+        back_pieces = bake_backface_colours(final_pieces, config.output_path)
+
         _log("[Export] Writing output files…")
-        export_results(config, mesh, final_pieces)
+        export_results(config, mesh, final_pieces, back_pieces)
 
     pieces_info = []
     for i in range(len(final_pieces)):
-        pieces_info.append({
+        info = {
             "index": i,
             "path": os.path.abspath(
                 os.path.join(config.output_path, "pieces", f"piece_{i:04d}.glb")
             ),
             "vertices": len(final_pieces[i].vertices),
-        })
+        }
+        info["back_path"] = os.path.abspath(
+            os.path.join(config.output_path, "pieces", f"piece_{i:04d}_back.glb")
+        )
+        info["back_vertices"] = len(back_pieces[i].vertices)
+        pieces_info.append(info)
 
     result = {
         "piece_count": len(final_pieces),
         "output_dir": os.path.abspath(config.output_path),
         "consolidated": os.path.abspath(os.path.join(config.output_path, "pieces.glb")),
         "checkpoint": os.path.abspath(os.path.join(config.output_path, "checkpoint.json")),
+        "colour_atlas": os.path.abspath(os.path.join(config.output_path, "colour_atlas.png")),
         "pieces": pieces_info,
     }
 

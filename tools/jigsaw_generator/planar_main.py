@@ -8,6 +8,7 @@ Usage:
 import json
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import trimesh
 
@@ -46,40 +47,70 @@ def run_ingest(config: Config) -> trimesh.Trimesh:
 # Export
 # ---------------------------------------------------------------------------
 
+def _export_one(mesh: trimesh.Trimesh, path: str) -> None:
+    mesh.export(path)
+
+
 def export_results(
     config: Config,
     mesh: trimesh.Trimesh,
     final_pieces: list[trimesh.Trimesh],
     back_pieces: list[trimesh.Trimesh] | None = None,
 ) -> None:
-    """Write all generated assets to the output directory."""
+    """Write all generated assets to the output directory (parallel I/O)."""
     out = config.output_path
     total_bounds = mesh.bounding_box
 
     pieces_dir = os.path.join(out, "pieces")
     os.makedirs(pieces_dir, exist_ok=True)
 
-    for i, piece_mesh in enumerate(final_pieces):
-        path = os.path.join(pieces_dir, f"piece_{i:04d}.glb")
-        piece_mesh.export(path)
-    print(f"[Export] Wrote {len(final_pieces)} individual front pieces to {pieces_dir}")
+    # ---- individual front pieces (parallel) ----
+    print("[Export] Writing individual front pieces …", file=sys.stderr, flush=True)
+    with ThreadPoolExecutor() as ex:
+        futs = {
+            ex.submit(_export_one, p, os.path.join(pieces_dir, f"piece_{i:04d}.glb")): i
+            for i, p in enumerate(final_pieces)
+        }
+        for fut in as_completed(futs):
+            fut.result()  # raise on error
+    print(
+        f"[Export]   {len(final_pieces)} front pieces written",
+        file=sys.stderr,
+        flush=True,
+    )
 
+    # ---- individual back-face pieces (parallel) ----
     if back_pieces is not None:
-        for i, back_mesh in enumerate(back_pieces):
-            path = os.path.join(pieces_dir, f"piece_{i:04d}_back.glb")
-            back_mesh.export(path)
-        print(f"[Export] Wrote {len(back_pieces)} individual back-face pieces to {pieces_dir}")
+        print("[Export] Writing individual back-face pieces …", file=sys.stderr, flush=True)
+        with ThreadPoolExecutor() as ex:
+            futs = {
+                ex.submit(_export_one, bm, os.path.join(pieces_dir, f"piece_{i:04d}_back.glb")): i
+                for i, bm in enumerate(back_pieces)
+            }
+            for fut in as_completed(futs):
+                fut.result()
+        print(
+            f"[Export]   {len(back_pieces)} back-face pieces written",
+            file=sys.stderr,
+            flush=True,
+        )
 
+    # ---- consolidated multi-node GLB ----
+    print("[Export] Building consolidated scene …", file=sys.stderr, flush=True)
     scene = trimesh.Scene()
     for i, piece_mesh in enumerate(final_pieces):
         node_name = f"piece_{i:04d}"
         scene.add_geometry(piece_mesh, node_name=f"{node_name}_front", geom_name=f"{node_name}_front")
         if back_pieces is not None:
             scene.add_geometry(back_pieces[i], node_name=f"{node_name}_back", geom_name=f"{node_name}_back")
-    consolidated_path = os.path.join(out, "pieces.glb")
-    scene.export(consolidated_path)
-    print(f"[Export] Wrote consolidated multi-node GLB to {consolidated_path}")
 
+    consolidated_path = os.path.join(out, "pieces.glb")
+    print("[Export] Exporting consolidated GLB …", file=sys.stderr, flush=True)
+    scene.export(consolidated_path, include_normals=False)
+    print(f"[Export]   consolidated GLB written", file=sys.stderr, flush=True)
+
+    # ---- checkpoint JSON ----
+    print("[Export] Writing checkpoint …", file=sys.stderr, flush=True)
     piece_centroids = [p.triangles_center.mean(axis=0) for p in final_pieces]
     piece_vertex_counts = [len(p.vertices) for p in final_pieces]
 
@@ -98,7 +129,7 @@ def export_results(
     checkpoint_path = os.path.join(out, "checkpoint.json")
     with open(checkpoint_path, "w") as f:
         json.dump(checkpoint, f, indent=2)
-    print(f"[Export] Wrote checkpoint to {checkpoint_path}")
+    print(f"[Export]   checkpoint written", file=sys.stderr, flush=True)
 
 
 # ---------------------------------------------------------------------------

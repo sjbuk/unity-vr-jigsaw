@@ -21,7 +21,7 @@ import trimesh
 from scipy.spatial import KDTree
 
 try:
-    from .geometry_utils import (
+    from .planar_step_02_geometry_utils import (
         build_face_neighbor_list,
         _fps_face_seeds,
         _fps_voxel_seeds,
@@ -34,7 +34,7 @@ try:
         voxel_seeds_to_face_indices,
     )
 except ImportError:
-    from geometry_utils import (
+    from planar_step_02_geometry_utils import (
         build_face_neighbor_list,
         _fps_face_seeds,
         _fps_voxel_seeds,
@@ -308,6 +308,17 @@ class FloodFillPartitioner:
             _, orig_indices = tree.query(verts_top[boundary_verts])
             normals[boundary_verts] = original_mesh.vertex_normals[orig_indices]
 
+        # Map each sorted edge -> (face_index, matches_face_order)
+        # so wall faces can be oriented outward from the patch interior.
+        edge_to_face: dict[tuple[int, int], tuple[int, bool]] = {}
+        for fi, face in enumerate(faces_top):
+            for ei in ((0, 1), (1, 2), (2, 0)):
+                a, b = int(face[ei[0]]), int(face[ei[1]])
+                se = (min(a, b), max(a, b))
+                matches = a == face[ei[0]]  # edge order matches face winding
+                edge_to_face[se] = (fi, matches)
+        face_normals_top = patch.face_normals
+
         n_top = len(verts_top)
         verts_bottom = verts_top - normals * thickness
 
@@ -315,8 +326,27 @@ class FloodFillPartitioner:
         for e in boundary_edges:
             v0, v1 = int(e[0]), int(e[1])
             b0, b1 = v0 + n_top, v1 + n_top
-            side_faces.append([v0, v1, b1])
-            side_faces.append([v0, b1, b0])
+
+            se = (v0, v1)
+            if se in edge_to_face:
+                fi, matches = edge_to_face[se]
+                fn_top = face_normals_top[fi]
+                tangent = verts_top[v1] - verts_top[v0]
+                outward = np.cross(tangent, fn_top)
+                if not matches:
+                    outward = -outward
+
+                n_wall = np.cross(verts_top[v1] - verts_top[v0],
+                                  verts_bottom[v1] - verts_top[v0])
+                if np.dot(n_wall, outward) < 0:
+                    side_faces.append([v0, b1, v1])
+                    side_faces.append([v0, b0, b1])
+                else:
+                    side_faces.append([v0, v1, b1])
+                    side_faces.append([v0, b1, b0])
+            else:
+                side_faces.append([v0, v1, b1])
+                side_faces.append([v0, b1, b0])
 
         faces_bottom = faces_top[:, ::-1] + n_top
 
@@ -338,6 +368,38 @@ class FloodFillPartitioner:
         extruded.visual = trimesh.visual.texture.TextureVisuals(uv=all_uv)
         if hasattr(patch.visual, "material") and patch.visual.material is not None:
             extruded.visual.material = patch.visual.material
+
+        # Flip faces whose normals oppose the vertex-normal consensus.
+        # This is safer than fix_normals() which can re-flip correct faces
+        # after getting confused at non-manifold edge junctions.
+        fn_ex = extruded.face_normals
+        vn_ex = extruded.vertex_normals
+        face_vn_ex = np.zeros((len(extruded.faces), 3))
+        for fi, face_ex in enumerate(extruded.faces):
+            face_vn_ex[fi] = vn_ex[face_ex].mean(axis=0)
+        norms_vn_ex = np.linalg.norm(face_vn_ex, axis=1, keepdims=True)
+        face_vn_ex = face_vn_ex / (norms_vn_ex + 1e-12)
+        inverted = np.sum(fn_ex * face_vn_ex, axis=1) < 0
+        if np.any(inverted):
+            extruded.faces[inverted] = extruded.faces[inverted][:, ::-1]
+
+        # Bottom-face pass: each bottom face i should point opposite to
+        # its corresponding top face i.  The vertex-normal heuristic is
+        # unreliable here because bottom vertices mix wall + bottom normals.
+        n_top_faces = len(faces_top)
+        top_normals = patch.face_normals
+        bottom_faces = extruded.faces[n_top_faces:2 * n_top_faces]
+        bottom_triangles = extruded.vertices[bottom_faces]
+        bottom_normals = np.cross(
+            bottom_triangles[:, 1] - bottom_triangles[:, 0],
+            bottom_triangles[:, 2] - bottom_triangles[:, 0],
+        )
+        bottom_normals /= np.linalg.norm(bottom_normals, axis=1, keepdims=True) + 1e-12
+        expected = -top_normals
+        bad_bottom = np.sum(bottom_normals * expected, axis=1) < 0
+        if np.any(bad_bottom):
+            extruded.faces[n_top_faces:2 * n_top_faces][bad_bottom] = \
+                extruded.faces[n_top_faces:2 * n_top_faces][bad_bottom][:, ::-1]
 
         if gap > 0.0:
             extruded = _shrink_mesh(extruded, gap)

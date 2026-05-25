@@ -2,7 +2,7 @@ export interface SliceParams {
   input_path: string;
   output_path: string;
   pieces: number;
-  mode: 'shell' | 'full_3d';
+  mode: 'shell' | 'full_3d' | 'planar';
   shell_thickness: number;
   gap: number;
   peg_clearance: number;

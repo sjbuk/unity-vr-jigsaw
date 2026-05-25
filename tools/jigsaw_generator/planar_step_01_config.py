@@ -5,7 +5,9 @@ CLI params (from jigsaw_tool_plan.md):
   --input <path>            Source GLB model file
   --output <path>           Output directory for generated assets
   --pieces <int>            Target count of puzzle pieces (default 24)
-  --mode shell|full_3d      Partitioning mode (default full_3d)
+  --mode shell|full_3d      Partitioning mode (default full_3d) [deprecated in favour of --cut_method]
+  --cut_method volume|shell|planar
+                             Cut method (overrides --mode). volume=full_3d, shell=shell, planar=BSP slicing (default None)
   --shell_thickness <f>     Inward extrusion distance in shell mode (default 0.02)
   --gap <f>                 Micro-bevel gap between adjacent boundaries (default 0.001)
   --peg_clearance <f>       Radial air-gap for alignment dowels (default 0.003)
@@ -20,7 +22,7 @@ import argparse
 from dataclasses import dataclass
 from typing import Literal
 
-Mode = Literal["shell", "full_3d"]
+Mode = Literal["shell", "full_3d", "planar"]
 
 
 @dataclass
@@ -41,8 +43,8 @@ class Config:
     def validate(self) -> None:
         if self.pieces < 2:
             raise ValueError("pieces must be >= 2")
-        if self.mode not in ("shell", "full_3d"):
-            raise ValueError("mode must be 'shell' or 'full_3d'")
+        if self.mode not in ("shell", "full_3d", "planar"):
+            raise ValueError("mode must be 'shell', 'full_3d', or 'planar'")
         if self.tab_density < 0.0 or self.tab_density > 1.0:
             raise ValueError("tab_density must be between 0 and 1")
         if self.gap < 0.0:
@@ -60,11 +62,18 @@ class Config:
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "Config":
+        mode = args.mode
+        if args.cut_method is not None:
+            mapping = {"volume": "full_3d", "shell": "shell", "planar": "planar"}
+            cut_mode = mapping[args.cut_method]
+            if cut_mode != mode:
+                print(f"[Config] --cut_method={args.cut_method} overrides --mode={mode} -> {cut_mode}")
+                mode = cut_mode
         return cls(
             input_path=args.input,
             output_path=args.output,
             pieces=args.pieces,
-            mode=args.mode,
+            mode=mode,
             shell_thickness=args.shell_thickness,
             gap=args.gap,
             peg_clearance=args.peg_clearance,
@@ -98,6 +107,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         choices=["shell", "full_3d"],
         default="full_3d",
         help="Partitioning mode: full_3d (volumetric) or shell (thin-walled) (default: full_3d)",
+    )
+    parser.add_argument(
+        "--cut_method",
+        choices=["volume", "shell", "planar"],
+        default=None,
+        help="Cut method (overrides --mode). 'volume' = full_3d, 'shell' = shell, 'planar' = BSP planar slices (default: None)",
     )
     parser.add_argument(
         "--shell_thickness",

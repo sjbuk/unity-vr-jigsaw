@@ -9,7 +9,7 @@ Phases:
     Export: GLB + checkpoint JSON
 
 Usage:
-    python main.py --input model.glb --output out/ --pieces 24
+    python planar_step_08_main.py --input model.glb --output out/ --pieces 24
 """
 
 import json
@@ -20,29 +20,29 @@ import numpy as np
 import trimesh
 
 try:
-    from .config import Config, build_arg_parser
-    from .mesh_io import (
+    from .planar_step_01_config import Config, build_arg_parser
+    from .planar_step_03_mesh_io import (
         load_model,
         normalize_mesh,
         is_closed,
         has_uv_maps,
         validate_topology,
     )
-    from .partitioner import FloodFillPartitioner
-    from .jigsaw_nubs import apply_joinery
-    from .mesh_cutter import cut_pieces_full_3d, cut_pieces_shell
+    from .planar_step_06_partitioner import FloodFillPartitioner
+    from .planar_step_07_jigsaw_nubs import apply_joinery
+    from .planar_step_04_mesh_cutter import cut_pieces_full_3d, cut_pieces_planar, cut_pieces_shell
 except ImportError:
-    from config import Config, build_arg_parser
-    from mesh_io import (
+    from planar_step_01_config import Config, build_arg_parser
+    from planar_step_03_mesh_io import (
         load_model,
         normalize_mesh,
         is_closed,
         has_uv_maps,
         validate_topology,
     )
-    from partitioner import FloodFillPartitioner
-    from jigsaw_nubs import apply_joinery
-    from mesh_cutter import cut_pieces_full_3d, cut_pieces_shell
+    from planar_step_06_partitioner import FloodFillPartitioner
+    from planar_step_07_jigsaw_nubs import apply_joinery
+    from planar_step_04_mesh_cutter import cut_pieces_full_3d, cut_pieces_planar, cut_pieces_shell
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +162,11 @@ def run_phase4(
     labels: np.ndarray,
     config: Config,
 ) -> list[trimesh.Trimesh]:
-    """Boolean cutting, hole capping, and triplanar UV assignment."""
+    """Boolean cutting, hole capping, triplanar UV assignment (or planar BSP slicing)."""
+    if config.mode == "planar":
+        print("[Phase 4] Planar BSP slicing pipeline …")
+        return cut_pieces_planar(mesh, config.pieces, seed=config.seed)
+
     if config.mode == "shell":
         target = pieces if pieces else patches
         return cut_pieces_shell(target, mesh, config)
@@ -244,9 +248,27 @@ def main(argv: list[str] | None = None) -> int:
     os.makedirs(config.output_path, exist_ok=True)
 
     mesh = run_phase1(config)
-    working_mesh, seeds, labels, patches, pieces = run_phase2(mesh, config)
-    patches, pieces = run_phase3(patches, pieces, labels, working_mesh, config)
-    final_pieces = run_phase4(mesh, patches, pieces, labels, config)
+
+    if config.mode == "planar":
+        print("[Main] Planar mode selected — skipping Phases 2 (Voronoi) and 3 (joinery).")
+        final_pieces = cut_pieces_planar(mesh, config.pieces, seed=config.seed)
+        seeds = np.zeros(config.pieces, dtype=np.int64)
+        # assign each original-mesh face to the piece with the nearest centroid
+        piece_centroids = [p.triangles_center.mean(axis=0) for p in final_pieces]
+        if len(piece_centroids) > 0:
+            all_piece_ctrs = np.array(piece_centroids)
+            face_ctrs = mesh.triangles_center
+            dists = np.linalg.norm(
+                face_ctrs[:, None, :] - all_piece_ctrs[None, :, :], axis=2
+            )
+            labels = np.argmin(dists, axis=1).astype(np.int64)
+        else:
+            labels = np.zeros(len(mesh.faces), dtype=np.int64)
+    else:
+        working_mesh, seeds, labels, patches, pieces = run_phase2(mesh, config)
+        patches, pieces = run_phase3(patches, pieces, labels, working_mesh, config)
+        final_pieces = run_phase4(mesh, patches, pieces, labels, config)
+
     export_results(config, mesh, seeds, labels, final_pieces)
 
     print(f"\n[Done] Output directory: {config.output_path}")

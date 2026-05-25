@@ -481,11 +481,31 @@ let cleanupSimListeners: (() => void) | null = null;
         addMesh(child, pieceIdx);
       }
 
-      for (const [idxA, ta] of pieceTargets) {
-        for (const [idxB, tb] of pieceTargets) {
+      const pieceBounds = new Map<number, THREE.Box3>();
+      for (let i = 0; i < meshes.length; i++) {
+        const pieceIdx = meshPieceIndex[i];
+        if (!pieceBounds.has(pieceIdx)) pieceBounds.set(pieceIdx, new THREE.Box3());
+        pieceBounds.get(pieceIdx)!.expandByObject(meshes[i]);
+      }
+
+      const adjacencyThreshold = 0.01;
+      const neighborPairs = new Set<string>();
+      for (const [idxA, boxA] of pieceBounds) {
+        const expandedA = boxA.clone().expandByScalar(adjacencyThreshold);
+        for (const [idxB, boxB] of pieceBounds) {
           if (idxA === idxB) continue;
-          relativeOffsets.set(`${idxA}|${idxB}`, new THREE.Vector3().copy(ta.pos).sub(tb.pos));
+          if (expandedA.intersectsBox(boxB)) {
+            neighborPairs.add(`${idxA}|${idxB}`);
+            neighborPairs.add(`${idxB}|${idxA}`);
+          }
         }
+      }
+
+      for (const pair of neighborPairs) {
+        const [idxA, idxB] = pair.split('|').map(Number);
+        const ta = pieceTargets.get(idxA)!;
+        const tb = pieceTargets.get(idxB)!;
+        relativeOffsets.set(pair, new THREE.Vector3().copy(ta.pos).sub(tb.pos));
       }
 
       for (const [idx] of pieceTargets) {

@@ -161,14 +161,17 @@
 
   {#if result}
     <aside class="results-panel">
-      <div class="view-toggle">
-        <button
-          class="toggle-btn" class:active={viewMode === 'split'}
-          onclick={() => (viewMode = 'split')}>Split</button>
-        <button
-          class="toggle-btn" class:active={viewMode === 'assembled'}
-          onclick={() => (viewMode = 'assembled')}>Assembled</button>
-      </div>
+        <div class="view-toggle">
+          <button
+            class="toggle-btn" class:active={viewMode === 'split'}
+            onclick={() => (viewMode = 'split')}>Split</button>
+          <button
+            class="toggle-btn" class:active={viewMode === 'assembled'}
+            onclick={() => (viewMode = 'assembled')}>Assembled</button>
+          <button
+            class="toggle-btn" class:active={viewMode === 'simulate'}
+            onclick={() => (viewMode = 'simulate')}>Simulate</button>
+        </div>
       <div class="texture-toggle">
         <button
           class="toggle-btn" class:active={showTexture}
@@ -182,7 +185,7 @@
 <style>
   .app-layout {
     display: grid;
-    grid-template-columns: 340px 1fr 260px;
+    grid-template-columns: 340px 1fr 280px;
     height: 100vh;
     overflow: hidden;
   }
@@ -260,16 +263,18 @@
   }
   .toggle-btn {
     flex: 1;
-    padding: 0.4rem 0.5rem;
+    padding: 0.35rem 0.25rem;
     border: none;
     border-radius: 4px;
     background: transparent;
     color: #888;
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     cursor: pointer;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.03em;
     transition: all 0.15s;
+    white-space: nowrap;
+    overflow: hidden;
   }
   .toggle-btn.active { background: #4f8cff; color: #fff; }
   .toggle-btn:hover:not(.active) { color: #ccc; }

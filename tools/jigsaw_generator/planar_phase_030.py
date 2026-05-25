@@ -1,9 +1,16 @@
 """
-planar_phase_030 — Back-face colour baking.
+planar_phase_030 -- Back-face colour baking.
 
 Adds back (inside) faces to each puzzle piece with UV coordinates
 that map to a generated colour atlas, giving each piece's back
 side a unique solid colour.
+
+Memory optimisations (v2):
+- Front-piece vertex buffers are shared with back-face meshes (no ``.copy()``)
+  since vertices are never modified after creation.
+- Back-face meshes are built in parallel via ``ThreadPoolExecutor``;
+  each piece is independent and numpy operations release the GIL.
+- The colour-atlas PNG is opened once and shared across all workers.
 """
 
 import math
@@ -11,6 +18,7 @@ import os
 import struct
 import sys
 import zlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import trimesh
@@ -22,6 +30,10 @@ try:
 except ImportError:
     _HAS_PIL = False
 
+
+# ---------------------------------------------------------------------------
+# colour utilities
+# ---------------------------------------------------------------------------
 
 def _hsv_to_rgb(h, s, v):
     h *= 6.0
@@ -52,6 +64,10 @@ def _generate_piece_colours(n):
         colours[i] = [int(r * 255), int(g * 255), int(b * 255)]
     return colours
 
+
+# ---------------------------------------------------------------------------
+# PNG writer (no external dependency required)
+# ---------------------------------------------------------------------------
 
 def _write_png(data, path):
     height, width = data.shape[:2]
@@ -112,6 +128,49 @@ def _create_colour_atlas(colours, output_dir):
     return path, cols, rows
 
 
+# ---------------------------------------------------------------------------
+# per-piece back-face baker (runs in thread pool)
+# ---------------------------------------------------------------------------
+
+def _bake_one(
+    piece: trimesh.Trimesh,
+    idx: int,
+    cols: int,
+    rows: int,
+    pil_img,  # PIL.Image | None
+) -> trimesh.Trimesh:
+    """Build the back-face mesh for a single puzzle piece."""
+    n_verts = len(piece.vertices)
+
+    col = idx % cols
+    row = idx // cols
+    u = (col + 0.5) / cols
+    v = 1.0 - (row + 0.5) / rows
+
+    uv = np.full((n_verts, 2), [u, v], dtype=np.float32)
+
+    back_mesh = trimesh.Trimesh(
+        vertices=piece.vertices,          # shared buffer, no copy
+        faces=piece.faces[:, ::-1],
+        process=False,
+    )
+    back_mesh.visual = trimesh.visual.TextureVisuals(uv=uv)
+
+    if pil_img is not None:
+        material = trimesh.visual.material.PBRMaterial(
+            roughnessFactor=1.0,
+            metallicFactor=0.0,
+        )
+        material.baseColorTexture = pil_img
+        back_mesh.visual.material = material
+
+    return back_mesh
+
+
+# ---------------------------------------------------------------------------
+# public API
+# ---------------------------------------------------------------------------
+
 def bake_backface_colours(pieces, output_dir):
     """
     Create a back-face mesh for each puzzle piece.
@@ -128,10 +187,11 @@ def bake_backface_colours(pieces, output_dir):
     back_meshes : list[trimesh.Trimesh]
         One back-face mesh per input piece (same order/index).
     """
-    if len(pieces) == 0:
+    n = len(pieces)
+    if n == 0:
         return []
 
-    colours = _generate_piece_colours(len(pieces))
+    colours = _generate_piece_colours(n)
     atlas_path, cols, rows = _create_colour_atlas(colours, output_dir)
     print(f"[Phase 3] Colour atlas: {atlas_path} ({cols}x{rows} grid)")
 
@@ -142,39 +202,25 @@ def bake_backface_colours(pieces, output_dir):
             file=sys.stderr,
         )
 
-    back_meshes = []
-    for i, piece in enumerate(pieces):
-        n_verts = len(piece.vertices)
-        back_faces = piece.faces[:, ::-1]
+    # open atlas once, share across threads
+    pil_img = None
+    if _HAS_PIL:
+        pil_img = PILImage.open(atlas_path)
 
-        col = i % cols
-        row = i // cols
+    # build back-face meshes in parallel
+    back_meshes: list[trimesh.Trimesh | None] = [None] * n
+    with ThreadPoolExecutor() as ex:
+        fut_map = {
+            ex.submit(_bake_one, piece, i, cols, rows, pil_img): i
+            for i, piece in enumerate(pieces)
+        }
+        for fut in as_completed(fut_map):
+            i = fut_map[fut]
+            back_meshes[i] = fut.result()
 
-        u = (col + 0.5) / cols
-        v = 1.0 - (row + 0.5) / rows
-
-        uv = np.full((n_verts, 2), [u, v], dtype=np.float32)
-
-        back_mesh = trimesh.Trimesh(
-            vertices=piece.vertices.copy(),
-            faces=back_faces,
-            process=False,
-        )
-        back_mesh.visual = trimesh.visual.TextureVisuals(uv=uv)
-
-        if _HAS_PIL:
-            img = PILImage.open(atlas_path)
-            material = trimesh.visual.material.PBRMaterial(
-                roughnessFactor=1.0,
-                metallicFactor=0.0,
-            )
-            material.baseColorTexture = img
-            back_mesh.visual.material = material
-
-        back_meshes.append(back_mesh)
-
+    total_back_faces = sum(len(bm.faces) for bm in back_meshes)  # type: ignore[arg-type]
     print(
-        f"[Phase 3] Generated {len(back_meshes)} back-face meshes "
-        f"({sum(len(bm.faces) for bm in back_meshes)} total back faces)"
+        f"[Phase 3] Generated {n} back-face meshes "
+        f"({total_back_faces} total back faces)"
     )
-    return back_meshes
+    return back_meshes  # type: ignore[return-value]

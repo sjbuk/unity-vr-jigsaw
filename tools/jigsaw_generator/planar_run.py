@@ -56,14 +56,13 @@ def main() -> int:
         _log("[Phase 1] Loading and normalizing model…")
         mesh = run_ingest(config)
 
-        _log("[Phase 2] Planar BSP slicing…")
+        _log("[Phase 2] Planar BSP slicing (v2)…")
         final_pieces = cut_pieces_planar(mesh, config.pieces, seed=config.seed)
 
         if config.reassign_orphans:
-            _log("[Phase 2] Reassigning orphan fragments…")
             final_pieces = reassign_orphans(final_pieces)
 
-        _log("[Phase 3] Baking back-face colours…")
+        _log("[Phase 3] Baking back-face colours (v2 parallel)…")
         back_pieces = bake_backface_colours(final_pieces, config.output_path)
 
         _log("[Export] Writing output files…")

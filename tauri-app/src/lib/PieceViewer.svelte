@@ -35,11 +35,15 @@ const meshPieceIndex: number[] = [];
 let loader: GLTFLoader;
 
 let raycaster: THREE.Raycaster | null = null;
-let draggedPieceIndex: number | null = null;
 let dragOffset = new THREE.Vector3();
 let dragPlane = new THREE.Plane();
-let snappedPieces = new Set<number>();
 let pieceTargets: Map<number, { pos: THREE.Vector3; quat: THREE.Quaternion }> = new Map();
+let relativeOffsets: Map<string, THREE.Vector3> = new Map();
+let clusterMembers: Map<number, Set<number>> = new Map();
+let pieceCluster: Map<number, number> = new Map();
+let draggedClusterId: number | null = null;
+let draggedPieceIndices: Set<number> | null = null;
+let dragRefPieceIdx: number | null = null;
 let mouseNDC = new THREE.Vector2();
 let isSimDragging = false;
 let cleanupSimListeners: (() => void) | null = null;
@@ -174,7 +178,6 @@ let cleanupSimListeners: (() => void) | null = null;
 
     const camDir = new THREE.Vector3();
     const planeHit = new THREE.Vector3();
-    const screenTarget = new THREE.Vector3();
 
     const updateMouseFromEvent = (e: PointerEvent) => {
       const rect = el.getBoundingClientRect();
@@ -182,23 +185,26 @@ let cleanupSimListeners: (() => void) | null = null;
       mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     };
 
+    const getPiecePosition = (pieceIdx: number): THREE.Vector3 | null => {
+      for (let i = 0; i < meshes.length; i++) {
+        if (meshPieceIndex[i] === pieceIdx) return meshes[i].position;
+      }
+      return null;
+    };
+
     const onPointerDown = (e: PointerEvent) => {
       if (!raycaster) return;
       updateMouseFromEvent(e);
       raycaster.setFromCamera(mouseNDC, camera!);
-      const draggableIndices: number[] = [];
-      for (let i = 0; i < meshes.length; i++) {
-        if (!snappedPieces.has(meshPieceIndex[i])) {
-          draggableIndices.push(i);
-        }
-      }
-      const draggable = draggableIndices.map((i) => meshes[i]);
-      const intersects = raycaster.intersectObjects(draggable, false);
+      const intersects = raycaster.intersectObjects(meshes, false);
       if (intersects.length > 0) {
         const obj = intersects[0].object as THREE.Mesh;
         const idx = meshes.indexOf(obj);
         if (idx >= 0) {
-          draggedPieceIndex = meshPieceIndex[idx];
+          const pieceIdx = meshPieceIndex[idx];
+          dragRefPieceIdx = pieceIdx;
+          draggedClusterId = pieceCluster.get(pieceIdx)!;
+          draggedPieceIndices = clusterMembers.get(draggedClusterId)!;
           isSimDragging = true;
           controls!.enabled = false;
           camera!.getWorldDirection(camDir);
@@ -213,38 +219,65 @@ let cleanupSimListeners: (() => void) | null = null;
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      if (!isSimDragging || draggedPieceIndex === null) return;
+      if (!isSimDragging || draggedClusterId === null || draggedPieceIndices === null || dragRefPieceIdx === null) return;
       updateMouseFromEvent(e);
       raycaster!.setFromCamera(mouseNDC, camera!);
       if (raycaster!.ray.intersectPlane(dragPlane, planeHit)) {
-        camDir.copy(planeHit).add(dragOffset);
+        const newRefPos = planeHit.clone().add(dragOffset);
+        let refMesh: THREE.Mesh | null = null;
         for (let i = 0; i < meshes.length; i++) {
-          if (meshPieceIndex[i] === draggedPieceIndex) {
-            meshes[i].position.copy(camDir);
+          if (meshPieceIndex[i] === dragRefPieceIdx) { refMesh = meshes[i]; break; }
+        }
+        if (!refMesh) return;
+        const delta = new THREE.Vector3().copy(newRefPos).sub(refMesh.position);
+        for (let i = 0; i < meshes.length; i++) {
+          if (draggedPieceIndices.has(meshPieceIndex[i])) {
+            meshes[i].position.add(delta);
           }
         }
 
-        const target = pieceTargets.get(draggedPieceIndex);
-        if (target) {
-          screenTarget.copy(target.pos).project(camera!);
-          const dx = screenTarget.x - mouseNDC.x;
-          const dy = screenTarget.y - mouseNDC.y;
-          const distScreen = Math.sqrt(dx * dx + dy * dy);
-          if (camDir.distanceTo(target.pos) < snapRadius || distScreen < 0.08) {
-            for (let i = 0; i < meshes.length; i++) {
-              if (meshPieceIndex[i] === draggedPieceIndex) {
-                meshes[i].position.copy(target.pos);
-                meshes[i].quaternion.copy(target.quat);
-              }
+        let bestDist = Infinity;
+        let bestSnapDelta = new THREE.Vector3();
+        let bestTargetClusterId: number | null = null;
+
+        for (const draggedIdx of draggedPieceIndices) {
+          const draggedPos = getPiecePosition(draggedIdx);
+          if (!draggedPos) continue;
+
+          for (const [otherIdx, otherClusterId] of pieceCluster) {
+            if (otherClusterId === draggedClusterId) continue;
+            const relOffset = relativeOffsets.get(`${draggedIdx}|${otherIdx}`);
+            if (!relOffset) continue;
+            const otherPos = getPiecePosition(otherIdx);
+            if (!otherPos) continue;
+
+            const expectedPos = otherPos.clone().add(relOffset);
+            const dist = draggedPos.distanceTo(expectedPos);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestSnapDelta.copy(expectedPos).sub(draggedPos);
+              bestTargetClusterId = otherClusterId;
             }
-            snappedPieces.add(draggedPieceIndex);
-            isSimDragging = false;
-            draggedPieceIndex = null;
-            controls!.enabled = true;
-            e.stopPropagation();
-            e.preventDefault();
-            return;
           }
+        }
+
+        if (bestDist < snapRadius && bestTargetClusterId !== null) {
+          for (let i = 0; i < meshes.length; i++) {
+            if (draggedPieceIndices.has(meshPieceIndex[i])) {
+              meshes[i].position.add(bestSnapDelta);
+            }
+          }
+          const targetCluster = clusterMembers.get(bestTargetClusterId)!;
+          for (const pi of draggedPieceIndices) {
+            targetCluster.add(pi);
+            pieceCluster.set(pi, bestTargetClusterId);
+          }
+          clusterMembers.delete(draggedClusterId);
+          isSimDragging = false;
+          draggedClusterId = null;
+          draggedPieceIndices = null;
+          dragRefPieceIdx = null;
+          controls!.enabled = true;
         }
       }
       e.stopPropagation();
@@ -254,7 +287,9 @@ let cleanupSimListeners: (() => void) | null = null;
     const onPointerUp = (e: PointerEvent) => {
       if (isSimDragging) {
         isSimDragging = false;
-        draggedPieceIndex = null;
+        draggedClusterId = null;
+        draggedPieceIndices = null;
+        dragRefPieceIdx = null;
         controls!.enabled = true;
         e.stopPropagation();
         e.preventDefault();
@@ -411,10 +446,14 @@ let cleanupSimListeners: (() => void) | null = null;
     const gen = ++loadingGen;
     if (!scene) return;
     clearScene();
-    snappedPieces.clear();
     pieceTargets.clear();
+    relativeOffsets.clear();
+    clusterMembers.clear();
+    pieceCluster.clear();
+    draggedClusterId = null;
+    draggedPieceIndices = null;
+    dragRefPieceIdx = null;
     isSimDragging = false;
-    draggedPieceIndex = null;
     if (!raycaster) raycaster = new THREE.Raycaster();
 
     try {
@@ -440,6 +479,18 @@ let cleanupSimListeners: (() => void) | null = null;
           quat: child.quaternion.clone(),
         });
         addMesh(child, pieceIdx);
+      }
+
+      for (const [idxA, ta] of pieceTargets) {
+        for (const [idxB, tb] of pieceTargets) {
+          if (idxA === idxB) continue;
+          relativeOffsets.set(`${idxA}|${idxB}`, new THREE.Vector3().copy(ta.pos).sub(tb.pos));
+        }
+      }
+
+      for (const [idx] of pieceTargets) {
+        clusterMembers.set(idx, new Set([idx]));
+        pieceCluster.set(idx, idx);
       }
 
       arrangeOnWall();
@@ -487,8 +538,12 @@ let cleanupSimListeners: (() => void) | null = null;
       cleanupSimListeners?.();
       cleanupSimListeners = null;
       isSimDragging = false;
-      draggedPieceIndex = null;
-      snappedPieces.clear();
+      draggedClusterId = null;
+      draggedPieceIndices = null;
+      dragRefPieceIdx = null;
+      clusterMembers.clear();
+      pieceCluster.clear();
+      relativeOffsets.clear();
       pieceTargets.clear();
       if (controls) controls.enabled = true;
     }

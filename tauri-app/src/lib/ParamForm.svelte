@@ -16,6 +16,7 @@
     <select id="mode" bind:value={params.mode}>
       <option value="full_3d">Full 3D</option>
       <option value="shell">Shell</option>
+      <option value="planar">Planar</option>
     </select>
   </div>
 

@@ -85,7 +85,7 @@ async fn slice_model(
 
     // 5. Spawn the Python subprocess
     let mut child = Command::new(python)
-        .arg("run_slice.py")
+        .arg("planar_step_09_run_slice.py")
         .arg(&config_path)
         .current_dir(&tools_dir_canonical)
         .stdout(Stdio::piped())

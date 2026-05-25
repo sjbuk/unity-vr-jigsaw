@@ -44,7 +44,7 @@
     const dir = params.input_path.substring(0, params.input_path.lastIndexOf(sep));
     const basename = params.input_path.substring(params.input_path.lastIndexOf(sep) + 1, params.input_path.lastIndexOf('.'));
     const countStr = String(params.pieces).padStart(4, '0');
-    const modeLabel = params.mode === 'full_3d' ? 'full' : 'shell';
+    const modeLabel = params.mode === 'full_3d' ? 'full' : params.mode === 'planar' ? 'planar' : 'shell';
 
     let outputDir = '';
     let counter = 0;

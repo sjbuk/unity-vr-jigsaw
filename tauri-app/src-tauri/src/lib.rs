@@ -30,6 +30,10 @@ pub struct PieceInfo {
     pub index: u32,
     pub path: String,
     pub vertices: u32,
+    #[serde(default)]
+    pub back_path: Option<String>,
+    #[serde(default)]
+    pub back_vertices: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -39,6 +43,8 @@ pub struct SliceResult {
     pub consolidated: String,
     pub checkpoint: String,
     pub pieces: Vec<PieceInfo>,
+    #[serde(default)]
+    pub colour_atlas: Option<String>,
 }
 
 /// Determine the Python command name available on this system.

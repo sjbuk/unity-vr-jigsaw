@@ -15,6 +15,7 @@ from planar_lib import Config, build_arg_parser
 from planar_phase_010 import load_model, normalize_mesh
 from planar_phase_021 import cut_pieces_planar
 from planar_phase_022 import reassign_orphans
+from planar_phase_030 import bake_backface_colours
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +50,7 @@ def export_results(
     config: Config,
     mesh: trimesh.Trimesh,
     final_pieces: list[trimesh.Trimesh],
+    back_pieces: list[trimesh.Trimesh] | None = None,
 ) -> None:
     """Write all generated assets to the output directory."""
     out = config.output_path
@@ -60,12 +62,20 @@ def export_results(
     for i, piece_mesh in enumerate(final_pieces):
         path = os.path.join(pieces_dir, f"piece_{i:04d}.glb")
         piece_mesh.export(path)
-    print(f"[Export] Wrote {len(final_pieces)} individual pieces to {pieces_dir}")
+    print(f"[Export] Wrote {len(final_pieces)} individual front pieces to {pieces_dir}")
+
+    if back_pieces is not None:
+        for i, back_mesh in enumerate(back_pieces):
+            path = os.path.join(pieces_dir, f"piece_{i:04d}_back.glb")
+            back_mesh.export(path)
+        print(f"[Export] Wrote {len(back_pieces)} individual back-face pieces to {pieces_dir}")
 
     scene = trimesh.Scene()
     for i, piece_mesh in enumerate(final_pieces):
-        node_name = f"piece_{i}"
-        scene.add_geometry(piece_mesh, node_name=node_name, geom_name=node_name)
+        node_name = f"piece_{i:04d}"
+        scene.add_geometry(piece_mesh, node_name=f"{node_name}_front", geom_name=f"{node_name}_front")
+        if back_pieces is not None:
+            scene.add_geometry(back_pieces[i], node_name=f"{node_name}_back", geom_name=f"{node_name}_back")
     consolidated_path = os.path.join(out, "pieces.glb")
     scene.export(consolidated_path)
     print(f"[Export] Wrote consolidated multi-node GLB to {consolidated_path}")
@@ -117,7 +127,10 @@ def main(argv: list[str] | None = None) -> int:
         print("[Phase 2] Reassigning orphan fragments …")
         final_pieces = reassign_orphans(final_pieces)
 
-    export_results(config, mesh, final_pieces)
+    print("[Phase 3] Baking back-face colours …")
+    back_pieces = bake_backface_colours(final_pieces, config.output_path)
+
+    export_results(config, mesh, final_pieces, back_pieces)
 
     print(f"\n[Done] Output directory: {config.output_path}")
     print(f"[Done] {len(final_pieces)} pieces exported.")

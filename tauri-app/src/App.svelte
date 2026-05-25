@@ -20,6 +20,7 @@
   let pieceVisibility = $state<boolean[]>([]);
 
   let piecePaths: string[] = $derived(result ? result.pieces.map(p => p.path) : []);
+  let backPiecePaths: string[] = $derived(result ? result.pieces.map(p => p.back_path ?? null).filter((p): p is string => p !== null) : []);
   let consolidatedPath: string = $derived(result?.consolidated ?? '');
 
   $effect(() => {
@@ -91,10 +92,12 @@
 
       const files = data.piece_count ?? counts.length;
       for (let i = 0; i < files; i++) {
+        const backPath = `${folder}/pieces/piece_${String(i).padStart(4, '0')}_back.glb`;
         pieces.push({
           index: i,
           path: `${folder}/pieces/piece_${String(i).padStart(4, '0')}.glb`,
           vertices: counts[i] ?? 0,
+          back_path: backPath,
         });
       }
 
@@ -103,6 +106,7 @@
         output_dir: folder,
         consolidated: `${folder}/pieces.glb`,
         checkpoint: checkpointPath,
+        colour_atlas: `${folder}/colour_atlas.png`,
         pieces,
       };
 
@@ -147,6 +151,7 @@
   <main class="main">
     <PieceViewer
       bind:piecePaths
+      bind:backPiecePaths
       bind:consolidatedPath
       bind:viewMode
       bind:pieceVisible={pieceVisibility}

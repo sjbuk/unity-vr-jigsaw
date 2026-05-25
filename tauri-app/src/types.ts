@@ -11,6 +11,8 @@ export interface PieceInfo {
   index: number;
   path: string;
   vertices: number;
+  back_path?: string;
+  back_vertices?: number;
 }
 
 export interface SliceResult {
@@ -19,6 +21,7 @@ export interface SliceResult {
   consolidated: string;
   checkpoint: string;
   pieces: PieceInfo[];
+  colour_atlas?: string;
 }
 
 export type ViewMode = 'split' | 'assembled';

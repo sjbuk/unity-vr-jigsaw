@@ -1,10 +1,11 @@
 """
-CLI wrapper that accepts a config JSON file, runs the planar slicing
-pipeline, prints progress to stderr, and prints the structured result
-JSON to stdout (for consumption by the Tauri sidecar).
+planar_run — Tauri sidecar entry point.
+
+Accepts a config JSON file path, runs the full planar slicing pipeline,
+prints progress to stderr, and prints the structured result JSON to stdout.
 
 Usage:
-    python planar_step_09_run_slice.py <config.json>
+    python planar_run.py <config.json>
 """
 
 import contextlib
@@ -12,11 +13,10 @@ import json
 import os
 import sys
 
-import numpy as np
-
-from planar_step_01_config import Config
-from planar_step_08_main import run_phase1, export_results
-from planar_step_04_mesh_cutter import cut_pieces_planar
+from planar_lib import Config
+from planar_main import run_ingest, export_results
+from planar_phase_021 import cut_pieces_planar
+from planar_phase_022 import reassign_orphans
 
 
 def _log(msg: str) -> None:
@@ -50,10 +50,14 @@ def main() -> int:
 
     with contextlib.redirect_stdout(sys.stderr):
         _log("[Phase 1] Loading and normalizing model…")
-        mesh = run_phase1(config)
+        mesh = run_ingest(config)
 
         _log("[Phase 2] Planar BSP slicing…")
         final_pieces = cut_pieces_planar(mesh, config.pieces, seed=config.seed)
+
+        if config.reassign_orphans:
+            _log("[Phase 2] Reassigning orphan fragments…")
+            final_pieces = reassign_orphans(final_pieces)
 
         _log("[Export] Writing output files…")
         export_results(config, mesh, final_pieces)
@@ -71,12 +75,8 @@ def main() -> int:
     result = {
         "piece_count": len(final_pieces),
         "output_dir": os.path.abspath(config.output_path),
-        "consolidated": os.path.abspath(
-            os.path.join(config.output_path, "pieces.glb")
-        ),
-        "checkpoint": os.path.abspath(
-            os.path.join(config.output_path, "checkpoint.json")
-        ),
+        "consolidated": os.path.abspath(os.path.join(config.output_path, "pieces.glb")),
+        "checkpoint": os.path.abspath(os.path.join(config.output_path, "checkpoint.json")),
         "pieces": pieces_info,
     }
 

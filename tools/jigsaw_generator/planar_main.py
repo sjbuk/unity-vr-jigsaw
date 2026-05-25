@@ -1,37 +1,27 @@
 """
-planar_step_08_main.py — CLI entry point for planar jigsaw slicing.
-
-Pipeline:
-    Phase 1: Model ingestion, normalization
-    Phase 2: Planar BSP slicing
-    Export: GLB + checkpoint JSON
+planar_main — CLI entry point for planar jigsaw slicing.
 
 Usage:
-    python planar_step_08_main.py --input model.glb --output out/ --pieces 24
+    python planar_main.py --input model.glb --output out/ --pieces 24
 """
 
 import json
 import os
 import sys
 
-import numpy as np
 import trimesh
 
-try:
-    from .planar_step_01_config import Config, build_arg_parser
-    from .planar_step_03_mesh_io import load_model, normalize_mesh
-    from .planar_step_04_mesh_cutter import cut_pieces_planar
-except ImportError:
-    from planar_step_01_config import Config, build_arg_parser
-    from planar_step_03_mesh_io import load_model, normalize_mesh
-    from planar_step_04_mesh_cutter import cut_pieces_planar
+from planar_lib import Config, build_arg_parser
+from planar_phase_010 import load_model, normalize_mesh
+from planar_phase_021 import cut_pieces_planar
+from planar_phase_022 import reassign_orphans
 
 
 # ---------------------------------------------------------------------------
-# Phase 1
+# Phase 1 — ingest
 # ---------------------------------------------------------------------------
 
-def run_phase1(config: Config) -> trimesh.Trimesh:
+def run_ingest(config: Config) -> trimesh.Trimesh:
     """Load and normalize the input mesh."""
     print(f"[Phase 1] Loading: {config.input_path}")
     mesh = load_model(config.input_path)
@@ -118,10 +108,14 @@ def main(argv: list[str] | None = None) -> int:
 
     os.makedirs(config.output_path, exist_ok=True)
 
-    mesh = run_phase1(config)
+    mesh = run_ingest(config)
 
     print("[Phase 2] Planar BSP slicing …")
     final_pieces = cut_pieces_planar(mesh, config.pieces, seed=config.seed)
+
+    if config.reassign_orphans:
+        print("[Phase 2] Reassigning orphan fragments …")
+        final_pieces = reassign_orphans(final_pieces)
 
     export_results(config, mesh, final_pieces)
 

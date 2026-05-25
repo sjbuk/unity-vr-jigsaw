@@ -4,6 +4,7 @@ export interface SliceParams {
   pieces: number;
   gap: number;
   seed: number | null;
+  reassign_orphans: boolean;
 }
 
 export interface PieceInfo {
@@ -28,4 +29,5 @@ export const DEFAULT_PARAMS: SliceParams = {
   pieces: 24,
   gap: 0.001,
   seed: null,
+  reassign_orphans: true,
 };

@@ -1,5 +1,5 @@
 """
-Configuration and CLI argument parsing for planar jigsaw slicing.
+planar_lib — Shared configuration and CLI argument parsing.
 """
 
 import argparse
@@ -13,6 +13,7 @@ class Config:
     pieces: int = 24
     gap: float = 0.001
     seed: int | None = None
+    reassign_orphans: bool = True
 
     def validate(self) -> None:
         if self.pieces < 2:
@@ -28,36 +29,20 @@ class Config:
             pieces=args.pieces,
             gap=args.gap,
             seed=args.seed,
+            reassign_orphans=not args.no_reassign_orphans,
         )
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="3D Jigsaw Piece Generator — decompose a GLB model via planar BSP slicing.",
+        description="3D Jigsaw — decompose a GLB model via planar BSP slicing.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--input", required=True, help="Path to source GLB model file")
-    parser.add_argument(
-        "--output",
-        required=True,
-        help="Path to output directory for generated assets",
-    )
-    parser.add_argument(
-        "--pieces",
-        type=int,
-        default=24,
-        help="Target number of puzzle pieces (default: 24)",
-    )
-    parser.add_argument(
-        "--gap",
-        type=float,
-        default=0.001,
-        help="Micro-bevel gap between adjacent boundaries (default: 0.001)",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=None,
-        help="Integer seed for reproducible slicing",
-    )
+    parser.add_argument("--output", required=True, help="Output directory for generated assets")
+    parser.add_argument("--pieces", type=int, default=24, help="Target number of pieces (default: 24)")
+    parser.add_argument("--gap", type=float, default=0.001, help="Micro-bevel gap between boundaries (default: 0.001)")
+    parser.add_argument("--seed", type=int, default=None, help="Integer seed for reproducible slicing")
+    parser.add_argument("--no-reassign-orphans", action="store_true",
+                        help="Skip orphan fragment reassignment (default: on)")
     return parser

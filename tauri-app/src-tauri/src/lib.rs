@@ -17,6 +17,12 @@ pub struct SliceParams {
     pub pieces: u32,
     pub gap: f64,
     pub seed: Option<u32>,
+    #[serde(default = "default_true")]
+    pub reassign_orphans: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -77,7 +83,7 @@ async fn slice_model(
 
     // 5. Spawn the Python subprocess
     let mut child = Command::new(python)
-        .arg("planar_step_09_run_slice.py")
+        .arg("planar_run.py")
         .arg(&config_path)
         .current_dir(&tools_dir_canonical)
         .stdout(Stdio::piped())

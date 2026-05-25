@@ -1,5 +1,5 @@
 """
-GLB loading and mesh normalization for planar slicing.
+planar_phase_010 — Mesh ingestion: load and normalize.
 """
 
 import trimesh

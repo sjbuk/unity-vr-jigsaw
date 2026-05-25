@@ -12,91 +12,9 @@
   </div>
 
   <div class="field">
-    <label for="mode">Mode</label>
-    <select id="mode" bind:value={params.mode}>
-      <option value="full_3d">Full 3D</option>
-      <option value="shell">Shell</option>
-      <option value="planar">Planar</option>
-    </select>
-  </div>
-
-  {#if params.mode === 'shell'}
-    <div class="field">
-      <label for="shell_thickness">Shell Thickness</label>
-      <input
-        id="shell_thickness"
-        type="range"
-        min="0.001"
-        max="0.1"
-        step="0.001"
-        bind:value={params.shell_thickness}
-      />
-      <span class="value">{params.shell_thickness.toFixed(3)}</span>
-    </div>
-  {/if}
-
-  <div class="field">
     <label for="gap">Gap</label>
     <input id="gap" type="range" min="0" max="0.01" step="0.0001" bind:value={params.gap} />
     <span class="value">{params.gap.toFixed(4)}</span>
-  </div>
-
-  <div class="field">
-    <label for="tab_density">Tab Density</label>
-    <input id="tab_density" type="range" min="0" max="1" step="0.05" bind:value={params.tab_density} />
-    <span class="value">{params.tab_density.toFixed(2)}</span>
-  </div>
-
-  <div class="field">
-    <label for="peg_clearance">Peg Clearance</label>
-    <input
-      id="peg_clearance"
-      type="range"
-      min="0"
-      max="0.01"
-      step="0.0001"
-      bind:value={params.peg_clearance}
-    />
-    <span class="value">{params.peg_clearance.toFixed(4)}</span>
-  </div>
-
-  <div class="field">
-    <label for="snap_radius_min">Snap Radius Min</label>
-    <input
-      id="snap_radius_min"
-      type="range"
-      min="0.001"
-      max="0.1"
-      step="0.001"
-      bind:value={params.snap_radius_min}
-    />
-    <span class="value">{params.snap_radius_min.toFixed(3)}</span>
-  </div>
-
-  <div class="field">
-    <label for="snap_radius_max">Snap Radius Max</label>
-    <input
-      id="snap_radius_max"
-      type="range"
-      min="0.01"
-      max="0.5"
-      step="0.001"
-      bind:value={params.snap_radius_max}
-    />
-    <span class="value">{params.snap_radius_max.toFixed(3)}</span>
-  </div>
-
-  <div class="field">
-    <label for="snap_angle_tolerance">Snap Angle Tolerance</label>
-    <input
-      id="snap_angle_tolerance"
-      type="range"
-      min="0"
-      max="180"
-      step="1"
-      bind:value={params.snap_angle_tolerance}
-    />
-    <span class="value">{params.snap_angle_tolerance.toFixed(0)}°</span>
   </div>
 
   <div class="field">

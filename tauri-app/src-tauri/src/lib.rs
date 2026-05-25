@@ -15,14 +15,7 @@ pub struct SliceParams {
     pub input_path: String,
     pub output_path: String,
     pub pieces: u32,
-    pub mode: String,
-    pub shell_thickness: f64,
     pub gap: f64,
-    pub peg_clearance: f64,
-    pub tab_density: f64,
-    pub snap_radius_min: f64,
-    pub snap_radius_max: f64,
-    pub snap_angle_tolerance: f64,
     pub seed: Option<u32>,
 }
 
@@ -40,7 +33,6 @@ pub struct SliceResult {
     pub consolidated: String,
     pub checkpoint: String,
     pub pieces: Vec<PieceInfo>,
-    pub mode: String,
 }
 
 /// Determine the Python command name available on this system.

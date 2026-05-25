@@ -16,7 +16,7 @@ eggs/
 .eggs/
 /lib/
 /lib64/
-
+_diag/
 parts/
 sdist/
 var/

@@ -34,7 +34,7 @@ public class CompletionFX : MonoBehaviour
 
     private IEnumerator HapticRoutine()
     {
-        var controllers = FindObjectsByType<XRBaseController>(FindObjectsSortMode.None);
+        var controllers = FindObjectsByType<XRBaseController>();
         float elapsed = 0f;
         while (elapsed < 1f)
         {

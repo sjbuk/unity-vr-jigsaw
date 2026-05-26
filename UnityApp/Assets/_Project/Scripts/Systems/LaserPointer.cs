@@ -14,7 +14,8 @@ public class LaserPointer : MonoBehaviour
     public LineRenderer lineRenderer;
     public GameObject cursorIndicator;
 
-    public float maxDistance = 10f;
+    public float maxDistance = 4f;
+    public float flyToHandDuration = 0.25f;
     public LayerMask layerMask = -1;
 
     [HideInInspector] public bool isActive;
@@ -146,7 +147,7 @@ public class LaserPointer : MonoBehaviour
     private void PullPiece(PieceState piece)
     {
         piece.TransitionTo(PieceStateEnum.FlyingToHand);
-        piece.FlyToPosition(pieceHolder.attachPoint.position, 0.25f, () =>
+        piece.FlyToPosition(pieceHolder.attachPoint.position, flyToHandDuration, () =>
         {
             if (pieceHolder != null)
                 pieceHolder.GrabPiece(piece);

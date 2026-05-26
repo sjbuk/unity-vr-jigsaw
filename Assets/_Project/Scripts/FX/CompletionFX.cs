@@ -58,7 +58,7 @@ namespace JigSawVR
 
         private IEnumerator HapticRoutine()
         {
-            var holders = FindObjectsByType<PieceHolder>(FindObjectsSortMode.None);
+            var holders = FindObjectsByType<PieceHolder>();
             float elapsed = 0f;
 
             while (elapsed < _hapticDuration)

@@ -8,6 +8,7 @@ public class PieceHolder : MonoBehaviour
     public XRBaseController controller;
     public LaserPointer laserPointer;
     public WallGrid wallGrid;
+    public float flyToWallDuration = 0.4f;
 
     public PieceState heldPiece;
     public bool IsHolding => heldPiece != null;
@@ -111,7 +112,7 @@ public class PieceHolder : MonoBehaviour
         Quaternion targetRot = wallGrid.SlotRotations[nearestSlot];
 
         heldPiece.TransitionTo(PieceStateEnum.FlyingToWall);
-        heldPiece.FlyToPosition(targetPos, 0.4f, () =>
+        heldPiece.FlyToPosition(targetPos, flyToWallDuration, () =>
         {
             heldPiece.transform.rotation = targetRot;
             heldPiece.TransitionTo(PieceStateEnum.OnWall);

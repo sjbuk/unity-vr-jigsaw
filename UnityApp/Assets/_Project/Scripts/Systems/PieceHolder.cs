@@ -2,15 +2,26 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.XR.Interaction.Toolkit;
 
+/// <summary>
+/// Manages grabbing, holding, and releasing puzzle pieces on a per-controller basis.
+/// Handles grip-based holding and return-to-wall functionality.
+/// </summary>
 public class PieceHolder : MonoBehaviour
 {
+    /// <summary>Transform where held pieces are attached.</summary>
     public Transform attachPoint;
+    /// <summary>XR controller for haptic feedback.</summary>
     public XRBaseController controller;
+    /// <summary>Reference to the associated laser pointer.</summary>
     public LaserPointer laserPointer;
+    /// <summary>Reference to the wall grid for returning pieces.</summary>
     public WallGrid wallGrid;
+    /// <summary>Duration of the fly-to-wall animation.</summary>
     public float flyToWallDuration = 0.4f;
 
+    /// <summary>The piece currently held by this holder, or null.</summary>
     public PieceState heldPiece;
+    /// <summary>Whether this holder is currently holding a piece.</summary>
     public bool IsHolding => heldPiece != null;
 
     private InputActionAsset inputActions;
@@ -27,6 +38,8 @@ public class PieceHolder : MonoBehaviour
             BindInput(prefix);
     }
 
+    /// <summary>Attempts to load the XRI_Jigsaw input actions from Resources.</summary>
+    /// <returns>True if the action map was found.</returns>
     bool TryLoadInputActions()
     {
         var jsonAsset = Resources.Load<TextAsset>("XRI_Jigsaw");
@@ -39,6 +52,8 @@ public class PieceHolder : MonoBehaviour
         return false;
     }
 
+    /// <summary>Binds grip and return input actions to their handlers.</summary>
+    /// <param name="prefix">"Left" or "Right" to identify the correct action bindings.</param>
     void BindInput(string prefix)
     {
         gripAction = jigsawMap.FindAction(prefix + "Grip");
@@ -81,6 +96,8 @@ public class PieceHolder : MonoBehaviour
     void OnGripCanceled(InputAction.CallbackContext ctx) => ReleasePiece();
     void OnReturnPerformed(InputAction.CallbackContext ctx) => ReturnPieceToWall();
 
+    /// <summary>Grabs a piece, attaches it to the holder, and deactivates the laser.</summary>
+    /// <param name="piece">The piece to grab.</param>
     public void GrabPiece(PieceState piece)
     {
         if (piece == null) return;
@@ -93,6 +110,7 @@ public class PieceHolder : MonoBehaviour
             laserPointer.isActive = false;
     }
 
+    /// <summary>Releases the held piece, leaving it floating in place.</summary>
     public void ReleasePiece()
     {
         if (!IsHolding) return;
@@ -101,6 +119,7 @@ public class PieceHolder : MonoBehaviour
         heldPiece = null;
     }
 
+    /// <summary>Flies the held piece back to the nearest empty wall slot.</summary>
     public void ReturnPieceToWall()
     {
         if (!IsHolding || wallGrid == null) return;
@@ -122,7 +141,10 @@ public class PieceHolder : MonoBehaviour
         });
     }
 
+    /// <summary>Called when grip is pressed (reserved for future use).</summary>
     public void OnGripPressed() { }
+    /// <summary>Called when grip is released — releases the held piece.</summary>
     public void OnGripReleased() { ReleasePiece(); }
+    /// <summary>Called when the return button is pressed — returns the piece to the wall.</summary>
     public void OnReturnButton() { ReturnPieceToWall(); }
 }

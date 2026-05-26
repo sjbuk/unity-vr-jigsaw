@@ -2,22 +2,37 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.XR.Interaction.Toolkit;
 
+/// <summary>
+/// Per-controller laser pointer that raycasts from the controller to detect and interact with puzzle pieces.
+/// Handles laser toggle, piece highlighting, and pulling pieces toward the hand.
+/// </summary>
 public class LaserPointer : MonoBehaviour
 {
+    /// <summary>Which hand this laser pointer belongs to.</summary>
     public enum HandSide { Unset, Left, Right }
 
+    /// <summary>The controller transform used as the ray origin.</summary>
     public Transform controllerTransform;
+    /// <summary>XR controller for haptic feedback.</summary>
     public XRBaseController controller;
+    /// <summary>Reference to the PieceHolder for grabbing pieces.</summary>
     public PieceHolder pieceHolder;
+    /// <summary>Which hand this laser pointer is assigned to.</summary>
     public HandSide Hand = HandSide.Unset;
 
+    /// <summary>Line renderer for drawing the laser beam.</summary>
     public LineRenderer lineRenderer;
+    /// <summary>Visual indicator shown at the laser hit point.</summary>
     public GameObject cursorIndicator;
 
+    /// <summary>Maximum raycast distance for the laser.</summary>
     public float maxDistance = 4f;
+    /// <summary>Duration of the fly-to-hand animation when pulling a piece.</summary>
     public float flyToHandDuration = 0.25f;
+    /// <summary>Layers the laser raycast can hit.</summary>
     public LayerMask layerMask = -1;
 
+    /// <summary>Whether the laser is currently active (toggled on/off).</summary>
     [HideInInspector] public bool isActive;
 
     private PieceState targetedPiece;
@@ -42,6 +57,8 @@ public class LaserPointer : MonoBehaviour
             BindInput();
     }
 
+    /// <summary>Attempts to load the XRI_Jigsaw input actions from Resources.</summary>
+    /// <returns>True if the action map was found.</returns>
     bool TryLoadInputActions()
     {
         var jsonAsset = Resources.Load<TextAsset>("XRI_Jigsaw");
@@ -54,6 +71,7 @@ public class LaserPointer : MonoBehaviour
         return false;
     }
 
+    /// <summary>Binds the laser toggle and trigger actions to their handlers.</summary>
     void BindInput()
     {
         string prefix = Hand == HandSide.Left ? "Left" : "Right";
@@ -131,11 +149,13 @@ public class LaserPointer : MonoBehaviour
         if (cursorIndicator != null) cursorIndicator.SetActive(false);
     }
 
+    /// <summary>Toggles the laser pointer on or off.</summary>
     public void OnToggleButton()
     {
         isActive = !isActive;
     }
 
+    /// <summary>Pulls the currently targeted piece toward the hand if it is interactable.</summary>
     public void OnTriggerButton()
     {
         if (targetedPiece != null && pieceHolder != null && !pieceHolder.IsHolding && !targetedPiece.IsFlying())
@@ -144,6 +164,8 @@ public class LaserPointer : MonoBehaviour
         }
     }
 
+    /// <summary>Initiates the fly-to-hand animation for a piece and grabs it on arrival.</summary>
+    /// <param name="piece">The piece to pull.</param>
     private void PullPiece(PieceState piece)
     {
         piece.TransitionTo(PieceStateEnum.FlyingToHand);
@@ -154,6 +176,8 @@ public class LaserPointer : MonoBehaviour
         });
     }
 
+    /// <summary>Applies a highlight material to the targeted piece's renderer.</summary>
+    /// <param name="piece">The piece to highlight.</param>
     private void HighlightPiece(PieceState piece)
     {
         var renderer = piece.GetComponentInChildren<MeshRenderer>();
@@ -172,6 +196,7 @@ public class LaserPointer : MonoBehaviour
         }
     }
 
+    /// <summary>Restores the original material on the previously highlighted piece.</summary>
     private void ClearHighlight()
     {
         if (highlightedRenderer != null && originalMaterial != null)

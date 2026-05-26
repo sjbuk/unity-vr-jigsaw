@@ -3,16 +3,27 @@ using System.IO;
 using System.Threading.Tasks;
 using UnityEngine;
 
+/// <summary>
+/// Main orchestrator for the puzzle gameplay. Loads checkpoint data, instantiates the GLB model,
+/// initializes subsystems (wall grid, snap system, save manager), and manages piece placement.
+/// </summary>
 public class PuzzleManager : MonoBehaviour
 {
+    /// <summary>Determines whether to start a new game or resume a saved one.</summary>
     public enum LoadMode { NewGame, Resume }
 
+    /// <summary>Path to the folder containing the puzzle's checkpoint.json and GLB files.</summary>
     public static string PuzzleFolderPath;
+    /// <summary>How the puzzle should be loaded on start.</summary>
     public static LoadMode LoadOnStart = LoadMode.NewGame;
 
+    /// <summary>Reference to the WallGrid component for slot management.</summary>
     public WallGrid wallGrid;
+    /// <summary>Reference to the SnapSystem component for adjacency snapping.</summary>
     public SnapSystem snapSystem;
+    /// <summary>Reference to the SaveManager component for persistence.</summary>
     public SaveManager saveManager;
+    /// <summary>Reference to the CompletionFX component for victory effects.</summary>
     public CompletionFX completionFX;
 
     private List<PieceState> allPieces;
@@ -23,13 +34,33 @@ public class PuzzleManager : MonoBehaviour
     {
         if (string.IsNullOrEmpty(PuzzleFolderPath))
         {
-            Debug.LogError("PuzzleFolderPath not set!");
-            return;
+            string puzzlesPath;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            puzzlesPath = Path.Combine(Application.persistentDataPath, "puzzles");
+#else
+            puzzlesPath = Path.Combine(Application.dataPath, "_Project", "Puzzels");
+#endif
+            if (Directory.Exists(puzzlesPath))
+            {
+                var dirs = Directory.GetDirectories(puzzlesPath);
+                if (dirs.Length > 0)
+                {
+                    PuzzleFolderPath = dirs[0];
+                    LoadOnStart = LoadMode.NewGame;
+                }
+            }
+
+            if (string.IsNullOrEmpty(PuzzleFolderPath))
+            {
+                Debug.LogError("PuzzleFolderPath not set and no puzzles found!");
+                return;
+            }
         }
 
         await LoadPuzzle();
     }
 
+    /// <summary>Loads checkpoint.json, instantiates the GLB model, and initializes all subsystems.</summary>
     async Task LoadPuzzle()
     {
         string checkpointPath = Path.Combine(PuzzleFolderPath, "checkpoint.json");
@@ -55,8 +86,9 @@ public class PuzzleManager : MonoBehaviour
         string glbPath = Path.Combine(PuzzleFolderPath, "pieces.glb");
         await LoadPuzzleGLB(glbPath);
 
+        float slotSpacing = ComputeSlotSpacing(allPieces);
         if (wallGrid != null)
-            wallGrid.Initialize(count);
+            wallGrid.Initialize(count, slotSpacing);
 
         if (snapSystem != null)
         {
@@ -74,6 +106,8 @@ public class PuzzleManager : MonoBehaviour
             ResumeFromSave();
     }
 
+    /// <summary>Loads the consolidated GLB file and creates PieceState GameObjects for each piece.</summary>
+    /// <param name="consolidatedPath">File path to the .glb file.</param>
     async Task LoadPuzzleGLB(string consolidatedPath)
     {
         if (!File.Exists(consolidatedPath))
@@ -94,31 +128,101 @@ public class PuzzleManager : MonoBehaviour
         var root = new GameObject("PuzzleRoot");
         await gltf.InstantiateSceneAsync(root.transform);
 
-        int pieceId = 0;
-        foreach (Transform child in root.transform)
-        {
-            string name = child.name;
-            int parsedId = ParsePieceId(name);
-            if (parsedId >= 0) pieceId = parsedId;
+        var pieceNodes = new Dictionary<int, List<Transform>>();
+        CollectPieceNodes(root.transform, pieceNodes);
 
-            var pieceState = child.gameObject.AddComponent<PieceState>();
+        foreach (var kvp in pieceNodes)
+        {
+            int pieceId = kvp.Key;
+            var container = new GameObject($"Piece_{pieceId:D4}");
+            container.transform.SetParent(root.transform);
+
+            foreach (var child in kvp.Value)
+                child.SetParent(container.transform);
+
+            var pieceState = container.AddComponent<PieceState>();
             pieceState.PieceId = pieceId;
             pieceState.CurrentState = PieceStateEnum.OnWall;
 
-            var meshFilter = child.GetComponent<MeshFilter>();
-            if (meshFilter != null && meshFilter.sharedMesh != null)
+            foreach (var mf in container.GetComponentsInChildren<MeshFilter>())
             {
-                var collider = child.gameObject.AddComponent<MeshCollider>();
-                collider.convex = true;
-                collider.sharedMesh = meshFilter.sharedMesh;
+                if (mf.sharedMesh != null)
+                {
+                    var collider = mf.gameObject.AddComponent<MeshCollider>();
+                    collider.convex = true;
+                    collider.sharedMesh = mf.sharedMesh;
+                }
             }
 
             pieceLookup[pieceId] = pieceState;
             allPieces.Add(pieceState);
-            pieceId++;
+        }
+
+        var dead = new List<GameObject>();
+        foreach (Transform child in root.transform)
+        {
+            if (child.childCount == 0 && child.GetComponent<PieceState>() == null)
+                dead.Add(child.gameObject);
+        }
+        foreach (var go in dead)
+            Destroy(go);
+    }
+
+    /// <summary>Recursively collects piece transforms from the GLB scene hierarchy, grouped by piece ID.</summary>
+    /// <param name="parent">The transform to search under.</param>
+    /// <param name="pieceNodes">Dictionary mapping piece IDs to their list of transforms.</param>
+    void CollectPieceNodes(Transform parent, Dictionary<int, List<Transform>> pieceNodes)
+    {
+        foreach (Transform child in parent)
+        {
+            int id = ParsePieceId(child.name);
+            if (id >= 0)
+            {
+                if (!pieceNodes.TryGetValue(id, out var list))
+                {
+                    list = new List<Transform>();
+                    pieceNodes[id] = list;
+                }
+                list.Add(child);
+            }
+            else
+            {
+                CollectPieceNodes(child, pieceNodes);
+            }
         }
     }
 
+    /// <summary>Computes the slot spacing based on the largest piece's combined world-space width/height with 20% margin.</summary>
+    float ComputeSlotSpacing(List<PieceState> pieces)
+    {
+        float maxSize = 0f;
+        foreach (var piece in pieces)
+        {
+            var renderers = piece.GetComponentsInChildren<Renderer>();
+            Bounds combined = new Bounds();
+            bool initialized = false;
+            foreach (var r in renderers)
+            {
+                if (!initialized)
+                {
+                    combined = r.bounds;
+                    initialized = true;
+                }
+                else
+                {
+                    combined.Encapsulate(r.bounds);
+                }
+            }
+            if (!initialized) continue;
+            float pieceSize = Mathf.Max(combined.size.x, combined.size.y);
+            if (pieceSize > maxSize) maxSize = pieceSize;
+        }
+        return maxSize * 1.2f;
+    }
+
+    /// <summary>Extracts the piece ID from a node name (e.g. "Piece_0003" returns 3).</summary>
+    /// <param name="name">The node name to parse.</param>
+    /// <returns>The piece ID, or -1 if parsing fails.</returns>
     private int ParsePieceId(string name)
     {
         var parts = name.Split('_');
@@ -127,6 +231,9 @@ public class PuzzleManager : MonoBehaviour
         return -1;
     }
 
+    /// <summary>Places all pieces onto the wall grid, optionally randomizing their slot assignment.</summary>
+    /// <param name="pieces">List of piece states to arrange.</param>
+    /// <param name="randomize">If true, slots are shuffled using the checkpoint seed.</param>
     void ArrangeOnWall(List<PieceState> pieces, bool randomize)
     {
         if (wallGrid == null) return;
@@ -162,6 +269,7 @@ public class PuzzleManager : MonoBehaviour
         }
     }
 
+    /// <summary>Restores piece positions, states, and cluster data from a saved game.</summary>
     void ResumeFromSave()
     {
         var saveData = saveManager?.Load();

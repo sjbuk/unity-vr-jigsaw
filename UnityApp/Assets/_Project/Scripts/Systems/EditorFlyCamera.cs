@@ -1,14 +1,22 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+/// <summary>
+/// Editor-only fly camera controlled by WASD + mouse look, automatically disabled in builds.
+/// Useful for navigating the PuzzleScene during development without a VR headset.
+/// </summary>
 public class EditorFlyCamera : MonoBehaviour
 {
     [Header("Movement")]
+    /// <summary>Normal movement speed in units/second.</summary>
     public float moveSpeed = 3f;
+    /// <summary>Movement speed when holding Shift.</summary>
     public float fastSpeed = 10f;
 
     [Header("Look")]
+    /// <summary>Mouse look sensitivity multiplier.</summary>
     public float lookSensitivity = 2f;
+    /// <summary>If true, vertical mouse movement is not inverted.</summary>
     public bool invertY = false;
 
     private float yaw;
@@ -44,6 +52,7 @@ public class EditorFlyCamera : MonoBehaviour
         HandleMovement();
     }
 
+    /// <summary>Reads WASD movement input and mouse look state.</summary>
     void ReadInput()
     {
         var keyboard = Keyboard.current;
@@ -64,6 +73,7 @@ public class EditorFlyCamera : MonoBehaviour
         }
     }
 
+    /// <summary>Applies mouse look rotation to the camera.</summary>
     void HandleLook()
     {
         if (!isLooking || lookDelta == Vector2.zero) return;
@@ -77,6 +87,7 @@ public class EditorFlyCamera : MonoBehaviour
         transform.rotation = Quaternion.Euler(pitch, yaw, 0f);
     }
 
+    /// <summary>Moves the camera based on WASD input and vertical E/Q keys.</summary>
     void HandleMovement()
     {
         var keyboard = Keyboard.current;

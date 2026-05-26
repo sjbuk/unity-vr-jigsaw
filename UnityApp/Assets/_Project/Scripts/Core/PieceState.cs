@@ -48,14 +48,15 @@ public class PieceState : MonoBehaviour
         CurrentState = newState;
     }
 
-    /// <summary>Attaches the piece to a controller's attach point.</summary>
+    /// <summary>Attaches the piece to a controller's attach point with an optional local offset.</summary>
     /// <param name="controller">The controller GameObject to attach to.</param>
     /// <param name="attachPoint">The transform to parent the piece under.</param>
-    public void AttachToHand(GameObject controller, Transform attachPoint)
+    /// <param name="localOffset">Local position offset from the attach point (e.g., forward to float in front of controller).</param>
+    public void AttachToHand(GameObject controller, Transform attachPoint, Vector3 localOffset = default)
     {
         TransitionTo(PieceStateEnum.InHand);
         transform.SetParent(attachPoint);
-        transform.localPosition = Vector3.zero;
+        transform.localPosition = localOffset;
         transform.localRotation = Quaternion.identity;
     }
 

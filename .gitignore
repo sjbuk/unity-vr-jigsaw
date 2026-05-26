@@ -46,3 +46,22 @@ tauri-app/src-tauri/icons/
 tauri-app/dist/
 tauri-app/node_modules/
 tauri-app/icon.png
+
+# Unity
+UnityApp/Library/
+UnityApp/[Tt]emp/
+UnityApp/[Oo]bj/
+UnityApp/[Bb]uild/
+UnityApp/[Bb]uilds/
+UnityApp/[Ll]ogs/
+UnityApp/[Uu]ser[Ss]ettings/
+UnityApp/[Mm]emoryCaptures/
+UnityApp/[Pp]rojectSettings/[Pp]rojectVersion.txt
+UnityApp/[Ww]ire[Bb]ridge/
+UnityApp/*.csproj
+UnityApp/*.sln
+UnityApp/*.userprefs
+UnityApp/unity.package
+UnityApp/Assets/AssetStoreTools*
+UnityApp/.vs/
+UnityApp/UnityApp.sln

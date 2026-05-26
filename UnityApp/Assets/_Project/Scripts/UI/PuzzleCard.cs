@@ -26,10 +26,17 @@ public class PuzzleCard : MonoBehaviour
 
         if (thumbnailImage != null && !string.IsNullOrEmpty(info.thumbnailPath))
         {
-            var bytes = System.IO.File.ReadAllBytes(info.thumbnailPath);
-            var tex = new Texture2D(2, 2);
-            tex.LoadImage(bytes);
-            thumbnailImage.texture = tex;
+            try
+            {
+                var bytes = System.IO.File.ReadAllBytes(info.thumbnailPath);
+                var tex = new Texture2D(2, 2);
+                tex.LoadImage(bytes);
+                thumbnailImage.texture = tex;
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[PuzzleCard] Failed to load thumbnail: {e.Message}");
+            }
         }
 
         if (resumeButton != null)

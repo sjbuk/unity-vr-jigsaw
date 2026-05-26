@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.XR.Interaction.Toolkit;
 
 public class PieceHolder : MonoBehaviour
@@ -10,6 +11,74 @@ public class PieceHolder : MonoBehaviour
 
     public PieceState heldPiece;
     public bool IsHolding => heldPiece != null;
+
+    private InputActionAsset inputActions;
+    private InputActionMap jigsawMap;
+    private InputAction gripAction;
+    private InputAction returnAction;
+
+    void Awake()
+    {
+        string parentName = transform.parent != null ? transform.parent.name : "";
+        string prefix = parentName.Contains("Left") ? "Left" : "Right";
+
+        if (TryLoadInputActions())
+            BindInput(prefix);
+    }
+
+    bool TryLoadInputActions()
+    {
+        var jsonAsset = Resources.Load<TextAsset>("XRI_Jigsaw");
+        if (jsonAsset != null)
+        {
+            inputActions = InputActionAsset.FromJson(jsonAsset.text);
+            jigsawMap = inputActions.FindActionMap("Jigsaw");
+            return jigsawMap != null;
+        }
+        return false;
+    }
+
+    void BindInput(string prefix)
+    {
+        gripAction = jigsawMap.FindAction(prefix + "Grip");
+        returnAction = jigsawMap.FindAction(prefix + "Return");
+
+        if (gripAction != null)
+        {
+            gripAction.started += OnGripStarted;
+            gripAction.canceled += OnGripCanceled;
+        }
+
+        if (returnAction != null)
+            returnAction.performed += OnReturnPerformed;
+
+        jigsawMap.Enable();
+    }
+
+    void OnEnable()
+    {
+        jigsawMap?.Enable();
+    }
+
+    void OnDisable()
+    {
+        jigsawMap?.Disable();
+    }
+
+    void OnDestroy()
+    {
+        if (gripAction != null)
+        {
+            gripAction.started -= OnGripStarted;
+            gripAction.canceled -= OnGripCanceled;
+        }
+        if (returnAction != null)
+            returnAction.performed -= OnReturnPerformed;
+    }
+
+    void OnGripStarted(InputAction.CallbackContext ctx) { }
+    void OnGripCanceled(InputAction.CallbackContext ctx) => ReleasePiece();
+    void OnReturnPerformed(InputAction.CallbackContext ctx) => ReturnPieceToWall();
 
     public void GrabPiece(PieceState piece)
     {
@@ -33,7 +102,7 @@ public class PieceHolder : MonoBehaviour
 
     public void ReturnPieceToWall()
     {
-        if (!IsHolding) return;
+        if (!IsHolding || wallGrid == null) return;
 
         int nearestSlot = wallGrid.GetNearestEmptySlot(heldPiece.transform.position);
         if (nearestSlot < 0) return;
@@ -52,17 +121,7 @@ public class PieceHolder : MonoBehaviour
         });
     }
 
-    public void OnGripPressed()
-    {
-    }
-
-    public void OnGripReleased()
-    {
-        ReleasePiece();
-    }
-
-    public void OnReturnButton()
-    {
-        ReturnPieceToWall();
-    }
+    public void OnGripPressed() { }
+    public void OnGripReleased() { ReleasePiece(); }
+    public void OnReturnButton() { ReturnPieceToWall(); }
 }

@@ -14,6 +14,7 @@ public class SnapSystem : MonoBehaviour
 
     private Dictionary<(int, int), Vector3> adjacencyMap;
     private Dictionary<int, HashSet<int>> clusters;
+    private Dictionary<int, PieceState> pieceRegistry;
 
     public void Initialize(AdjacencyEntry[] adjacencyData)
     {
@@ -40,6 +41,28 @@ public class SnapSystem : MonoBehaviour
                 clusters[piece.PieceId] = new HashSet<int> { piece.PieceId };
             }
             piece.ClusterId = piece.PieceId;
+        }
+    }
+
+    public void SetPieceRegistry(Dictionary<int, PieceState> registry)
+    {
+        pieceRegistry = registry;
+    }
+
+    public void RestoreClusters(SaveManager.ClusterSaveEntry[] savedClusters)
+    {
+        if (savedClusters == null) return;
+
+        clusters = new Dictionary<int, HashSet<int>>();
+        foreach (var entry in savedClusters)
+        {
+            var set = new HashSet<int>(entry.memberPieceIds);
+            clusters[entry.clusterId] = set;
+            foreach (var memberId in entry.memberPieceIds)
+            {
+                if (pieceRegistry != null && pieceRegistry.TryGetValue(memberId, out var piece))
+                    piece.ClusterId = entry.clusterId;
+            }
         }
     }
 
@@ -72,8 +95,8 @@ public class SnapSystem : MonoBehaviour
             offset = -offset;
         }
 
-        Transform transformB = GetPieceTransform(pieceB);
-        Transform transformA = GetPieceTransform(pieceA);
+        Transform transformB = GetTransform(pieceB);
+        Transform transformA = GetTransform(pieceA);
 
         if (transformB == null || transformA == null) return false;
 
@@ -100,7 +123,7 @@ public class SnapSystem : MonoBehaviour
 
         if (snapParticles != null)
         {
-            var pos = GetPieceTransform(pieceA)?.position ?? Vector3.zero;
+            var pos = GetTransform(pieceA)?.position ?? Vector3.zero;
             Instantiate(snapParticles, pos, Quaternion.identity);
         }
 
@@ -123,17 +146,16 @@ public class SnapSystem : MonoBehaviour
             controller.SendHapticImpulse(amplitude, duration);
     }
 
-    private Transform GetPieceTransform(int pieceId)
+    private Transform GetTransform(int pieceId)
     {
-        var pieces = FindObjectsByType<PieceState>(FindObjectsSortMode.None);
-        foreach (var p in pieces)
-        {
-            if (p.PieceId == pieceId) return p.transform;
-        }
+        if (pieceRegistry != null && pieceRegistry.TryGetValue(pieceId, out var state))
+            return state.transform;
         return null;
     }
 
     public int GetClusterCount() => clusters?.Count ?? 0;
+
+    public Dictionary<int, HashSet<int>> GetClusters() => clusters;
 
     public HashSet<int> GetClusterMembers(PieceState piece)
     {
@@ -145,14 +167,10 @@ public class SnapSystem : MonoBehaviour
 
     private void MergeClusters(int pieceA, int pieceB)
     {
-        var pieceAState = FindPieceState(pieceA);
-        var pieceBState = FindPieceState(pieceB);
-        if (pieceAState == null || pieceBState == null) return;
+        int clusterA = GetClusterId(pieceA);
+        int clusterB = GetClusterId(pieceB);
 
-        int clusterA = pieceAState.ClusterId;
-        int clusterB = pieceBState.ClusterId;
-
-        if (clusterA == clusterB) return;
+        if (clusterA < 0 || clusterB < 0 || clusterA == clusterB) return;
 
         if (!clusters.TryGetValue(clusterA, out var setA) ||
             !clusters.TryGetValue(clusterB, out var setB))
@@ -161,8 +179,8 @@ public class SnapSystem : MonoBehaviour
         foreach (int member in setB)
         {
             setA.Add(member);
-            var state = FindPieceState(member);
-            if (state != null) state.ClusterId = clusterA;
+            if (pieceRegistry != null && pieceRegistry.TryGetValue(member, out var state))
+                state.ClusterId = clusterA;
         }
 
         clusters.Remove(clusterB);
@@ -170,26 +188,22 @@ public class SnapSystem : MonoBehaviour
 
     private void MoveCluster(int memberPiece, Vector3 delta)
     {
-        var state = FindPieceState(memberPiece);
-        if (state == null) return;
+        int clusterId = GetClusterId(memberPiece);
+        if (clusterId < 0) return;
 
-        if (!clusters.TryGetValue(state.ClusterId, out var members)) return;
+        if (!clusters.TryGetValue(clusterId, out var members)) return;
 
         foreach (int id in members)
         {
-            var ps = FindPieceState(id);
-            if (ps != null)
-                ps.transform.position += delta;
+            if (pieceRegistry != null && pieceRegistry.TryGetValue(id, out var state))
+                state.transform.position += delta;
         }
     }
 
-    private PieceState FindPieceState(int pieceId)
+    private int GetClusterId(int pieceId)
     {
-        var pieces = FindObjectsByType<PieceState>(FindObjectsSortMode.None);
-        foreach (var p in pieces)
-        {
-            if (p.PieceId == pieceId) return p;
-        }
-        return null;
+        if (pieceRegistry != null && pieceRegistry.TryGetValue(pieceId, out var state))
+            return state.ClusterId;
+        return -1;
     }
 }

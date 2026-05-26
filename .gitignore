@@ -63,5 +63,6 @@ UnityApp/*.sln
 UnityApp/*.userprefs
 UnityApp/unity.package
 UnityApp/Assets/AssetStoreTools*
+UnityApp/Assets/Samples/
 UnityApp/.vs/
 UnityApp/UnityApp.sln

@@ -16,6 +16,8 @@ public class PieceHolder : MonoBehaviour
     public LaserPointer laserPointer;
     /// <summary>Reference to the wall grid for returning pieces.</summary>
     public WallGrid wallGrid;
+    /// <summary>How far in front of the controller the piece floats when held.</summary>
+    public Vector3 holdOffset = new Vector3(0, 0, 0.15f);
     /// <summary>Duration of the fly-to-wall animation.</summary>
     public float flyToWallDuration = 0.4f;
 
@@ -31,10 +33,11 @@ public class PieceHolder : MonoBehaviour
 
     void Awake()
     {
-        string parentName = transform.parent != null ? transform.parent.name : "";
-        string prefix = parentName.Contains("Left") ? "Left" : "Right";
+        string prefix = gameObject.name.Contains("Left") ? "Left" : "Right";
 
-        if (TryLoadInputActions())
+        var loaded = TryLoadInputActions();
+        Debug.Log($"[PieceHolder] {gameObject.name} Awake: prefix={prefix}, actionsLoaded={loaded}");
+        if (loaded)
             BindInput(prefix);
     }
 
@@ -43,13 +46,30 @@ public class PieceHolder : MonoBehaviour
     bool TryLoadInputActions()
     {
         var jsonAsset = Resources.Load<TextAsset>("XRI_Jigsaw");
-        if (jsonAsset != null)
+        if (jsonAsset == null)
+        {
+            Debug.LogError("[PieceHolder] XRI_Jigsaw.json not found in Resources!");
+            return false;
+        }
+
+        try
         {
             inputActions = InputActionAsset.FromJson(jsonAsset.text);
-            jigsawMap = inputActions.FindActionMap("Jigsaw");
-            return jigsawMap != null;
         }
-        return false;
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[PieceHolder] Failed to parse XRI_Jigsaw.json: {e.Message}");
+            return false;
+        }
+
+        jigsawMap = inputActions.FindActionMap("Jigsaw");
+        if (jigsawMap == null)
+        {
+            Debug.LogError("[PieceHolder] Action map 'Jigsaw' not found!");
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>Binds grip and return input actions to their handlers.</summary>
@@ -104,7 +124,7 @@ public class PieceHolder : MonoBehaviour
 
         heldPiece = piece;
         piece.TransitionTo(PieceStateEnum.InHand);
-        piece.AttachToHand(gameObject, attachPoint);
+        piece.AttachToHand(gameObject, attachPoint, holdOffset);
 
         if (laserPointer != null)
             laserPointer.isActive = false;

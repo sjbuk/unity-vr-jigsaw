@@ -58,15 +58,23 @@ Assets/
 
 ### 2.2 PuzzleScene Hierarchy
 ```
-XR Origin (XR Rig)
-  Camera Offset
+XR Origin (XR Rig) [Starter Assets prefab]
+  Camera Floor Offset
     Main Camera
     Left Controller
-      LaserPointer (LineRenderer)
-      AttachPoint (empty, where piece sits when held)
+      LaserPointer + PieceHolder (components)
+      AttachPoint (empty, held piece local offset anchor)
+      LaserVisual (LineRenderer child)
+      Poke Interactor (Starter Assets prefab child)
+      Near-Far Interactor (Starter Assets prefab child)
+      Left Controller Visual (Starter Assets prefab child)
     Right Controller
-      LaserPointer (LineRenderer)
-      AttachPoint (empty, where piece sits when held)
+      LaserPointer + PieceHolder (components)
+      AttachPoint (empty, held piece local offset anchor)
+      LaserVisual (LineRenderer child)
+      Poke Interactor (Starter Assets prefab child)
+      Near-Far Interactor (Starter Assets prefab child)
+      Right Controller Visual (Starter Assets prefab child)
 
 Puzzle Manager (GameObject)
   └─ PuzzleManager.cs         # Orchestrator, entry point
@@ -219,7 +227,7 @@ public class PieceState : MonoBehaviour
     public PuzzlePieceCollider pieceCollider; // For laser raycast targeting
 
     public void TransitionTo(PieceStateEnum newState);
-    public void AttachToHand(GameObject controller, Transform attachPoint);
+    public void AttachToHand(GameObject controller, Transform attachPoint, Vector3 localOffset = default);
     public void DetachFromHand();
     public void FlyToPosition(Vector3 target, float duration, System.Action onArrive);
     public bool IsInteractable(); // true if OnWall or Floating
@@ -295,53 +303,42 @@ void ComputeLayout(int pieceCount)
 public class LaserPointer : MonoBehaviour
 {
     public Transform controllerTransform;
-    public XRController controller;       // Input Actions reference
+    public XRBaseController controller;   // For haptic feedback
     public PieceHolder pieceHolder;       // Reference to same hand's holder
+    public HandSide Hand;                 // Left or Right (auto-detected from name)
 
     public LineRenderer lineRenderer;
     public GameObject cursorIndicator;    // Sphere/ring at hit point
+    public float maxDistance = 4f;
+    public float flyToHandDuration = 0.25f;
+    public float flyHoldDistance = 0.2f;  // How far in front piece lands
 
-    private bool isActive;
+    [HideInInspector] public bool isActive;
+
     private PieceState targetedPiece;
-    private PieceState flyingPiece;       // Piece mid-pull-flight
 
     void Update()
     {
-        if (!isActive) { lineRenderer.enabled = false; return; }
-        if (pieceHolder.IsHolding) { lineRenderer.enabled = false; return; }
-
-        RaycastHit hit;
-        if (Physics.Raycast(controllerTransform.position, controllerTransform.forward, out hit, maxDistance, layerMask))
+        if (!isActive || pieceHolder == null || pieceHolder.IsHolding)
         {
-            PieceState piece = hit.collider.GetComponent<PieceState>();
-            if (piece != null && piece.IsInteractable())
-            {
-                HighlightPiece(piece);
-                targetedPiece = piece;
-                cursorIndicator.transform.position = hit.point;
-                cursorIndicator.SetActive(true);
-            }
-            else
-            {
-                ClearHighlight();
-                cursorIndicator.SetActive(false);
-            }
+            lineRenderer.enabled = false;
+            return;
         }
+        // Raycast from controller → highlight target
     }
-
-    public void OnToggleButton();           // Input Action callback: toggle isActive
-    public void OnTriggerButton();          // Input Action callback: pull targetedPiece
 
     void PullPiece(PieceState piece)
     {
-        if (pieceHolder.IsHolding || piece == null || piece.IsFlying()) return;
-        piece.FlyToPosition(pieceHolder.attachPoint.position, 0.25f, () => {
+        Vector3 targetPos = pieceHolder.attachPoint.position
+                          + controllerTransform.forward * flyHoldDistance;
+        piece.FlyToPosition(targetPos, flyToHandDuration, () => {
             pieceHolder.GrabPiece(piece);
         });
     }
 
-    void HighlightPiece(PieceState piece);  // Set emission/highlight material
-    void ClearHighlight();
+    // Input: self-binds via XRI_Jigsaw.inputactions from Resources
+    // Left primaryButton / Right secondaryButton → OnToggleButton()
+    // Trigger → OnTriggerButton()
 }
 ```
 
@@ -353,9 +350,11 @@ public class LaserPointer : MonoBehaviour
 public class PieceHolder : MonoBehaviour
 {
     public Transform attachPoint;          // Where piece sits when held
-    public XRController controller;
+    public XRBaseController controller;
     public LaserPointer laserPointer;
     public WallGrid wallGrid;
+    public Vector3 holdOffset = new Vector3(0, 0, 0.15f); // Float in front of controller
+    public float flyToWallDuration = 0.4f;
 
     public PieceState heldPiece;
     public bool IsHolding => heldPiece != null;
@@ -364,28 +363,26 @@ public class PieceHolder : MonoBehaviour
     {
         heldPiece = piece;
         piece.TransitionTo(PieceStateEnum.InHand);
-        piece.transform.SetParent(attachPoint);
-        piece.transform.localPosition = Vector3.zero;
-        piece.transform.localRotation = Quaternion.identity;
+        piece.AttachToHand(gameObject, attachPoint, holdOffset);
         laserPointer.isActive = false;     // Auto-disable laser
     }
 
     public void ReleasePiece()
     {
         if (!IsHolding) return;
-        heldPiece.transform.SetParent(null); // Float in world space
-        heldPiece.TransitionTo(PieceStateEnum.Floating);
+        heldPiece.DetachFromHand();        // Sets parent to null, state → Floating
         heldPiece = null;
     }
 
     public void ReturnPieceToWall()
     {
-        if (!IsHolding) return;
+        if (!IsHolding || wallGrid == null) return;
         int nearestSlot = wallGrid.GetNearestEmptySlot(heldPiece.transform.position);
-        Vector3 targetPos = wallGrid.slotPositions[nearestSlot];
-        Quaternion targetRot = wallGrid.slotRotations[nearestSlot];
+        if (nearestSlot < 0) return;
+        Vector3 targetPos = wallGrid.SlotPositions[nearestSlot];
+        Quaternion targetRot = wallGrid.SlotRotations[nearestSlot];
 
-        heldPiece.FlyToPosition(targetPos, 0.4f, () => {
+        heldPiece.FlyToPosition(targetPos, flyToWallDuration, () => {
             heldPiece.transform.rotation = targetRot;
             heldPiece.TransitionTo(PieceStateEnum.OnWall);
             wallGrid.OccupySlot(nearestSlot, heldPiece.PieceId);
@@ -393,10 +390,9 @@ public class PieceHolder : MonoBehaviour
         });
     }
 
-    // Input Action callbacks:
-    public void OnGripPressed();    // Grab piece if near-attachable (from laser pull)
-    public void OnGripReleased();   // ReleasePiece()
-    public void OnReturnButton();   // ReturnPieceToWall()
+    // Input: self-binds via XRI_Jigsaw.inputactions from Resources
+    // Grip cancel → ReleasePiece()
+    // Return button → ReturnPieceToWall()
 }
 ```
 
@@ -738,31 +734,29 @@ async void LoadPuzzleGLB(string consolidatedPath)
 
 ## 5. Input Action Asset
 
+### 5.0 Controller Setup
+
+After cloning or importing the project, run **`Jigsaw > Setup Controller Interactors`** in the Unity Editor with `PuzzleScene` open. This adds `LaserPointer`, `PieceHolder`, `AttachPoint`, and `LaserVisual` (LineRenderer) to both controllers in the XR Origin prefab instance, wires all cross-references, and links `SnapSystem` + `WallGrid` references.
+
 ### 5.1 Action Map: XRI_Jigsaw
 
 ```
-XRI LeftHand Interaction:
-  Position                   [Binding: LeftHand/devicePosition]
-  Rotation                   [Binding: LeftHand/deviceRotation]
-  Grip Press                 [Binding: LeftHand/gripPressed]
-  Grip Release               [Binding: LeftHand/gripReleased]
-  Trigger Press              [Binding: LeftHand/triggerPressed]
-  Laser Toggle               [Binding: LeftHand/primaryButton (Y)]
-  Return To Wall             [Binding: LeftHand/secondaryButton (X)]
-  Haptic                     [Binding: LeftHand/haptic]
+Jigsaw Action Map (loaded from Resources/XRI_Jigsaw.json):
 
-XRI RightHand Interaction:
-  Position                   [Binding: RightHand/devicePosition]
-  Rotation                   [Binding: RightHand/deviceRotation]
-  Grip Press                 [Binding: RightHand/gripPressed]
-  Grip Release               [Binding: RightHand/gripReleased]
-  Trigger Press              [Binding: RightHand/triggerPressed]
-  Laser Toggle               [Binding: RightHand/secondaryButton (B)]
-  Return To Wall             [Binding: RightHand/primaryButton (A)]
-  Haptic                     [Binding: RightHand/haptic]
+  LeftLaserToggle    [LeftHand/primaryButton]          → Toggle left laser
+  LeftTrigger        [LeftHand/triggerPressed]         → Pull targeted piece to hand
+  LeftReturn         [LeftHand/secondaryButton]        → Return held piece to wall
+  LeftGrip           [LeftHand/gripPressed]            → Hold to keep, release → float
 
-XRI Locomotion:
-  Snap Turn                  [Binding: RightHand/thumbstick/x, LeftHand/thumbstick/x]
+  RightLaserToggle   [RightHand/secondaryButton]       → Toggle right laser
+  RightTrigger       [RightHand/triggerPressed]        → Pull targeted piece to hand
+  RightReturn        [RightHand/primaryButton]         → Return held piece to wall
+  RightGrip          [RightHand/gripPressed]           → Hold to keep, release → float
+
+  SnapTurn           [RightHand/thumbstick]            → Rotate view (snap increments)
+
+LaserPointer and PieceHolder self-bind via InputActionAsset.FromJson().
+JigsawInputBinder.cs provides an alternative centralized binding approach.
 ```
 
 ---
@@ -849,6 +843,10 @@ Assets/
         PieceHolder.cs
         SnapSystem.cs
         SaveManager.cs
+        JigsawInputBinder.cs
+      Editor/
+        JigsawSceneSetup.cs
+        SetupControllerInteractors.cs
       UI/
         MenuManager.cs
         PuzzleCard.cs
@@ -1031,13 +1029,14 @@ generate_preview(final_pieces, preview_path)
 ## 11. Testing Checklist
 
 ### Core Interaction
-- [ ] Y-Left toggles left laser on/off, B-Right toggles right laser on/off
-- [ ] Trigger pulls highlighted piece to controller, linear flight ~0.25s
+- [ ] Left A toggles left laser on/off, Right B toggles right laser on/off
+- [ ] Trigger pulls highlighted piece to controller (flies to ~0.2m in front)
+- [ ] Piece floats ~0.15m in front of controller when held
 - [ ] Hand with piece cannot toggle or fire laser
 - [ ] Grip release leaves piece floating at world position
 - [ ] Grip re-press on nearby floating piece does NOT auto-grab (only via laser pull)
 - [ ] Snap-turn rotates view by configurable angle, left and right
-- [ ] A/X buttons return held piece to nearest empty wall slot
+- [ ] Left B / Right A returns held piece to nearest empty wall slot
 - [ ] Returned piece occupies slot, slot is marked occupied
 
 ### Snap Logic

@@ -12,6 +12,7 @@ EditorBuildSettings:
     path: Assets/_Project/Scenes/PuzzleScene.unity
     guid: 8a06751e4a07481478519c8759de97a7
   m_configObjects:
+    com.unity.dt.app-ui: {fileID: 11400000, guid: 1b1c20d82303e4b5781c3ef50ac1449f, type: 2}
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
     com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: b0fae17890e631f44a6f2814e57f81bb, type: 2}
     com.unity.xr.management.loader_settings: {fileID: 11400000, guid: 40a9d573fdcee42498b86ef37035a224, type: 2}

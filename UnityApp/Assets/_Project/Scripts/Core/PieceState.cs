@@ -27,9 +27,6 @@ public class PieceState : MonoBehaviour
     public GameObject LeftHandController;
     public GameObject RightHandController;
 
-    /// <summary>Reference to the PuzzlePieceCollider component for raycast targeting.</summary>
-    public PuzzlePieceCollider pieceCollider;
-
     private Coroutine flightRoutine;
     private Rigidbody rb;
 

@@ -1,0 +1,32 @@
+{
+    "version": 1,
+    "timestamp": "2026-05-26T13:13:29.7262637+01:00",
+    "completionPercent": 1.0,
+    "pieceStates": [
+        {
+            "pieceId": 0,
+            "state": "on_wall",
+            "wallSlot": 0,
+            "position": [
+                0.0,
+                1.2000000476837159,
+                0.5
+            ],
+            "rotation": [
+                0.0,
+                0.8320503234863281,
+                -0.5547001957893372,
+                0.0
+            ],
+            "clusterId": 0
+        }
+    ],
+    "clusters": [
+        {
+            "clusterId": 0,
+            "memberPieceIds": [
+                0
+            ]
+        }
+    ]
+}

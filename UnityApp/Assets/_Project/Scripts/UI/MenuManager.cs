@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+using UnityEngine.InputSystem;
 
 public class MenuManager : MonoBehaviour
 {
@@ -9,32 +11,61 @@ public class MenuManager : MonoBehaviour
     public Transform cardsContainer;
     public float cardSpacing = 0.4f;
     public float panelDistance = 1.5f;
+    public float cardWorldScale = 0.3f;
+    public float menuHeight = 1.6f;
+    public float menuForwardDistance = 1.5f;
 
     private string puzzlesPath;
     private List<PuzzleInfo> discoveredPuzzles;
+    private Transform workingContainer;
+
+    void Update()
+    {
+        if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame
+            && discoveredPuzzles != null && discoveredPuzzles.Count > 0)
+        {
+            OnStartPuzzle(discoveredPuzzles[0], false);
+        }
+    }
 
     void Start()
     {
+        var placeholder = GameObject.Find("Placeholder Text");
+        if (placeholder != null) placeholder.SetActive(false);
+
 #if UNITY_ANDROID && !UNITY_EDITOR
         puzzlesPath = Path.Combine(Application.persistentDataPath, "puzzles");
 #else
         puzzlesPath = Path.Combine(Application.dataPath, "_Project", "Puzzels");
 #endif
         Directory.CreateDirectory(puzzlesPath);
-        DiscoverPuzzles();
+
+        SetupContainer();
+        this.DiscoverPuzzles();
         ArrangePanels();
-        CreateDebugMarker();
     }
 
-    void CreateDebugMarker()
+    void SetupContainer()
     {
-        var marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        marker.name = "DEBUG_MARKER";
-        marker.transform.position = new Vector3(0, 1.6f, 3f);
-        marker.transform.localScale = new Vector3(0.3f, 0.3f, 0.3f);
-        var renderer = marker.GetComponent<Renderer>();
-        renderer.material.color = Color.magenta;
-        Debug.Log("[MenuManager] Created magenta debug cube at (0, 1.6, 3). If you can't see this, something is wrong with rendering.");
+        var existingCanvas = GameObject.Find("UI Canvas");
+        if (existingCanvas != null)
+        {
+            workingContainer = existingCanvas.transform;
+            Debug.Log($"[MenuManager] Using existing UI Canvas at {workingContainer.position}");
+            return;
+        }
+
+        var containerGO = new GameObject("Menu Panels Container");
+        containerGO.transform.SetParent(transform, false);
+        containerGO.transform.localPosition = new Vector3(0, menuHeight, menuForwardDistance);
+        containerGO.transform.localRotation = Quaternion.identity;
+
+        var canvas = containerGO.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.worldCamera = Camera.main;
+
+        workingContainer = containerGO.transform;
+        Debug.Log($"[MenuManager] Created fresh canvas container at {workingContainer.position}");
     }
 
     void DiscoverPuzzles()
@@ -121,30 +152,31 @@ public class MenuManager : MonoBehaviour
             return;
         }
 
-        if (cardsContainer == null)
-        {
-            Debug.LogError("[MenuManager] cardsContainer not assigned!");
-            return;
-        }
+        var cam = Camera.main;
+        Debug.Log($"[MenuManager] Camera pos={cam.transform.position}, forward={cam.transform.forward}, canvas pos={workingContainer.position}");
 
         Debug.Log("[MenuManager] Instantiating puzzle cards...");
 
         for (int i = 0; i < count; i++)
         {
-            var card = Instantiate(puzzleCardPrefab, cardsContainer);
+            var card = Instantiate(puzzleCardPrefab, workingContainer);
             float angle = Mathf.Lerp(-30f, 30f, count > 1 ? (float)i / (count - 1) : 0.5f);
             float rad = angle * Mathf.Deg2Rad;
-            Vector3 pos = new Vector3(
-                Mathf.Sin(rad) * panelDistance,
-                0f,
-                Mathf.Cos(rad) * panelDistance
-            );
-            card.transform.localPosition = pos;
-            card.transform.rotation = Quaternion.LookRotation(-pos.normalized, Vector3.up);
+
+            Vector3 forward = cam.transform.forward;
+            Vector3 right = cam.transform.right;
+            Vector3 worldCenter = cam.transform.position + forward * menuForwardDistance + Vector3.up * menuHeight + right * Mathf.Sin(rad) * panelDistance;
+            card.transform.position = worldCenter;
+            card.transform.localScale = new Vector3(cardWorldScale, cardWorldScale, cardWorldScale);
+            card.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
+
+            Debug.Log($"[MenuManager] Card {i} worldPos={card.transform.position}");
 
             var puzzleCard = card.GetComponent<PuzzleCard>();
             if (puzzleCard != null)
                 puzzleCard.Initialize(discoveredPuzzles[i], this);
+            else
+                Debug.LogError($"[MenuManager] Card {i} has no PuzzleCard component! Prefab: {puzzleCardPrefab?.name}");
         }
     }
 
@@ -158,9 +190,9 @@ public class MenuManager : MonoBehaviour
     public void OnResetPuzzle(PuzzleInfo puzzle)
     {
         File.Delete(Path.Combine(puzzle.folderPath, "save.json"));
-        foreach (Transform child in cardsContainer)
+        foreach (Transform child in workingContainer)
             Destroy(child.gameObject);
-        DiscoverPuzzles();
+        this.DiscoverPuzzles();
         ArrangePanels();
     }
 }

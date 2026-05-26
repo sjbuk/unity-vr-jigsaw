@@ -108,7 +108,7 @@ public class JigsawSceneSetup : EditorWindow
 
         GameObject menuPanels = new GameObject("Menu Panels Container");
         menuPanels.transform.SetParent(xrOrigin.transform);
-        menuPanels.transform.localPosition = new Vector3(0, 1.6f, 2f);
+        menuPanels.transform.localPosition = new Vector3(0, mm.menuHeight, mm.menuForwardDistance);
         mm.cardsContainer = menuPanels.transform;
 
         GameObject uiCanvas = new GameObject("UI Canvas");
@@ -116,7 +116,7 @@ public class JigsawSceneSetup : EditorWindow
         canvas.renderMode = RenderMode.WorldSpace;
         var canvasRT = canvas.GetComponent<RectTransform>();
         canvasRT.SetParent(xrOrigin.transform);
-        canvasRT.localPosition = new Vector3(0, 1.6f, 2f);
+        canvasRT.localPosition = new Vector3(0, mm.menuHeight, mm.menuForwardDistance);
         canvasRT.sizeDelta = new Vector2(2, 1);
         uiCanvas.AddComponent<UnityEngine.UI.CanvasScaler>();
         uiCanvas.AddComponent<UnityEngine.UI.GraphicRaycaster>();
@@ -163,7 +163,7 @@ public class JigsawSceneSetup : EditorWindow
         nameGO.transform.SetParent(card.transform, false);
         var nameText = nameGO.AddComponent<TMPro.TextMeshPro>();
         nameText.text = "Puzzle Name";
-        nameText.fontSize = 0.12f;
+        nameText.fontSize = 18f;
         nameText.alignment = TMPro.TextAlignmentOptions.TopLeft;
         nameText.color = Color.white;
         var nameRT = nameGO.GetComponent<RectTransform>();
@@ -177,7 +177,7 @@ public class JigsawSceneSetup : EditorWindow
         countGO.transform.SetParent(card.transform, false);
         var countText = countGO.AddComponent<TMPro.TextMeshPro>();
         countText.text = "0 pieces";
-        countText.fontSize = 0.08f;
+        countText.fontSize = 12f;
         countText.alignment = TMPro.TextAlignmentOptions.TopLeft;
         countText.color = Color.gray;
         var countRT = countGO.GetComponent<RectTransform>();

@@ -14,10 +14,10 @@ public class WallGrid : MonoBehaviour
     private Vector3[] slotPositions;
     private Quaternion[] slotRotations;
 
-    private const float PlayerEyeHeight = 1.6f;
-    private const float SlotSpacing = 0.2f;
-    private const float ComfortMinDist = 0.5f;
-    private const float ComfortMaxDist = 1.8f;
+    [SerializeField] private float playerEyeHeight = 1.6f;
+    [SerializeField] private float slotSpacing = 0.2f;
+    [SerializeField] private float comfortMinDist = 0.5f;
+    [SerializeField] private float comfortMaxDist = 1.5f;
 
     public void Initialize(int pieceCount)
     {
@@ -31,11 +31,11 @@ public class WallGrid : MonoBehaviour
 
     private void ComputeLayout(int pieceCount)
     {
-        int rows = Mathf.Max(4, Mathf.FloorToInt((ComfortMaxDist - ComfortMinDist) * Mathf.PI * 2 / SlotSpacing / 6f));
+        int rows = Mathf.Max(4, Mathf.FloorToInt((comfortMaxDist - comfortMinDist) * Mathf.PI * 2 / slotSpacing / 6f));
         int cols = Mathf.CeilToInt((float)pieceCount / rows);
 
-        float radius = Mathf.Max(ComfortMinDist, SlotSpacing * cols / (2f * Mathf.PI));
-        radius = Mathf.Min(radius, ComfortMaxDist);
+        float radius = Mathf.Max(comfortMinDist, slotSpacing * cols / (2f * Mathf.PI));
+        radius = Mathf.Min(radius, comfortMaxDist);
 
         slotPositions = new Vector3[pieceCount];
         slotRotations = new Quaternion[pieceCount];
@@ -43,7 +43,7 @@ public class WallGrid : MonoBehaviour
         int slotIdx = 0;
         for (int r = 0; r < rows && slotIdx < pieceCount; r++)
         {
-            float y = PlayerEyeHeight - (rows - 1) * SlotSpacing * 0.5f + r * SlotSpacing;
+            float y = playerEyeHeight - (rows - 1) * slotSpacing * 0.5f + r * slotSpacing;
             for (int c = 0; c < cols && slotIdx < pieceCount; c++)
             {
                 float angle = (float)c / cols * 2f * Mathf.PI;

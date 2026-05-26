@@ -53,7 +53,7 @@ public class SaveManager : MonoBehaviour
     {
         if (string.IsNullOrEmpty(puzzleFolderPath)) return;
 
-        var pieces = FindObjectsByType<PieceState>(FindObjectsSortMode.None);
+        var pieces = FindObjectsByType<PieceState>();
 
         var pieceEntries = new List<PieceSaveEntry>();
         foreach (var piece in pieces)
@@ -70,7 +70,7 @@ public class SaveManager : MonoBehaviour
             });
         }
 
-        var snapSystem = FindFirstObjectByType<SnapSystem>();
+        var snapSystem = FindAnyObjectByType<SnapSystem>();
         var clusterEntries = new List<ClusterSaveEntry>();
         if (snapSystem != null)
         {

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEngine;
@@ -52,11 +53,47 @@ public class SaveManager : MonoBehaviour
     {
         if (string.IsNullOrEmpty(puzzleFolderPath)) return;
 
+        var pieces = FindObjectsByType<PieceState>(FindObjectsSortMode.None);
+
+        var pieceEntries = new List<PieceSaveEntry>();
+        foreach (var piece in pieces)
+        {
+            pieceEntries.Add(new PieceSaveEntry
+            {
+                pieceId = piece.PieceId,
+                state = piece.CurrentState == PieceStateEnum.OnWall ? "on_wall" :
+                        piece.CurrentState == PieceStateEnum.Floating ? "floating" : "on_wall",
+                wallSlot = piece.WallSlotIndex,
+                position = new float[] { piece.transform.position.x, piece.transform.position.y, piece.transform.position.z },
+                rotation = new float[] { piece.transform.rotation.x, piece.transform.rotation.y, piece.transform.rotation.z, piece.transform.rotation.w },
+                clusterId = piece.ClusterId
+            });
+        }
+
+        var snapSystem = FindFirstObjectByType<SnapSystem>();
+        var clusterEntries = new List<ClusterSaveEntry>();
+        if (snapSystem != null)
+        {
+            foreach (var kvp in snapSystem.GetClusters())
+            {
+                clusterEntries.Add(new ClusterSaveEntry
+                {
+                    clusterId = kvp.Key,
+                    memberPieceIds = kvp.Value.ToArray()
+                });
+            }
+        }
+
+        int totalClusters = snapSystem != null ? snapSystem.GetClusterCount() : pieces.Length;
+        float completionPercent = totalClusters > 0 ? 1f / totalClusters : 0f;
+
         var data = new SaveData
         {
             version = 1,
             timestamp = System.DateTime.Now.ToString("o"),
-            completionPercent = 0f
+            completionPercent = completionPercent,
+            pieceStates = pieceEntries.ToArray(),
+            clusters = clusterEntries.ToArray()
         };
 
         string json = JsonUtility.ToJson(data, true);

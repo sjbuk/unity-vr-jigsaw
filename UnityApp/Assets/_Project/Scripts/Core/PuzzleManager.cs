@@ -16,6 +16,7 @@ public class PuzzleManager : MonoBehaviour
     public CompletionFX completionFX;
 
     private List<PieceState> allPieces;
+    private Dictionary<int, PieceState> pieceLookup;
     private CheckpointData checkpoint;
 
     async void Start()
@@ -47,18 +48,21 @@ public class PuzzleManager : MonoBehaviour
             return;
         }
 
-        allPieces = new List<PieceState>(checkpoint.piece_count);
+        int count = checkpoint.piece_count;
+        allPieces = new List<PieceState>(count);
+        pieceLookup = new Dictionary<int, PieceState>(count);
 
         string glbPath = Path.Combine(PuzzleFolderPath, "pieces.glb");
         await LoadPuzzleGLB(glbPath);
 
         if (wallGrid != null)
-            wallGrid.Initialize(checkpoint.piece_count);
+            wallGrid.Initialize(count);
 
         if (snapSystem != null)
         {
             snapSystem.Initialize(checkpoint.adjacency);
             snapSystem.InitializeClusters(allPieces.ToArray());
+            snapSystem.SetPieceRegistry(pieceLookup);
         }
 
         if (saveManager != null)
@@ -109,6 +113,7 @@ public class PuzzleManager : MonoBehaviour
                 collider.sharedMesh = meshFilter.sharedMesh;
             }
 
+            pieceLookup[pieceId] = pieceState;
             allPieces.Add(pieceState);
             pieceId++;
         }
@@ -168,8 +173,8 @@ public class PuzzleManager : MonoBehaviour
 
         foreach (var entry in saveData.pieceStates)
         {
-            var piece = allPieces.Find(p => p.PieceId == entry.pieceId);
-            if (piece == null) continue;
+            if (!pieceLookup.TryGetValue(entry.pieceId, out var piece))
+                continue;
 
             piece.WallSlotIndex = entry.wallSlot;
             piece.ClusterId = entry.clusterId;
@@ -185,9 +190,7 @@ public class PuzzleManager : MonoBehaviour
                 case "on_wall":
                     piece.CurrentState = PieceStateEnum.OnWall;
                     if (entry.wallSlot >= 0)
-                    {
-                        wallGrid.OccupySlot(entry.wallSlot, entry.pieceId);
-                    }
+                        wallGrid?.OccupySlot(entry.wallSlot, entry.pieceId);
                     break;
                 case "floating":
                     piece.CurrentState = PieceStateEnum.Floating;
@@ -198,19 +201,9 @@ public class PuzzleManager : MonoBehaviour
             }
         }
 
-        if (saveData.clusters != null)
+        if (saveData.clusters != null && snapSystem != null)
         {
-            var clusterMap = new Dictionary<int, HashSet<int>>();
-            foreach (var clusterEntry in saveData.clusters)
-            {
-                var set = new HashSet<int>(clusterEntry.memberPieceIds);
-                clusterMap[clusterEntry.clusterId] = set;
-                foreach (var memberId in clusterEntry.memberPieceIds)
-                {
-                    var piece = allPieces.Find(p => p.PieceId == memberId);
-                    if (piece != null) piece.ClusterId = clusterEntry.clusterId;
-                }
-            }
+            snapSystem.RestoreClusters(saveData.clusters);
         }
     }
 

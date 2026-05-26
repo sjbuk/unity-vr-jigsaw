@@ -104,15 +104,93 @@ public class JigsawSceneSetup : EditorWindow
         GameObject xrOrigin = CreateXROrigin();
 
         GameObject menuManager = new GameObject("Menu Manager");
-        menuManager.AddComponent<MenuManager>();
+        var mm = menuManager.AddComponent<MenuManager>();
 
         GameObject menuPanels = new GameObject("Menu Panels Container");
+        menuPanels.transform.SetParent(xrOrigin.transform);
+        menuPanels.transform.localPosition = new Vector3(0, 1.6f, 2f);
+        mm.cardsContainer = menuPanels.transform;
 
         GameObject uiCanvas = new GameObject("UI Canvas");
         var canvas = uiCanvas.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
+        var canvasRT = canvas.GetComponent<RectTransform>();
+        canvasRT.SetParent(xrOrigin.transform);
+        canvasRT.localPosition = new Vector3(0, 1.6f, 2f);
+        canvasRT.sizeDelta = new Vector2(2, 1);
+        uiCanvas.AddComponent<UnityEngine.UI.CanvasScaler>();
+        uiCanvas.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+
+        var textGO = new GameObject("Placeholder Text");
+        textGO.transform.SetParent(canvasRT, false);
+        var text = textGO.AddComponent<TMPro.TextMeshPro>();
+        text.text = "Jigsaw VR — No puzzles found\nAdd puzzle folders to Assets/_Project/Puzzels/";
+        text.fontSize = 0.08f;
+        text.alignment = TMPro.TextAlignmentOptions.Center;
+        text.color = Color.white;
+        var textRT = text.GetComponent<RectTransform>();
+        textRT.sizeDelta = new Vector2(2, 1);
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.offsetMin = Vector2.zero;
+        textRT.offsetMax = Vector2.zero;
+
+        mm.puzzleCardPrefab = CreatePuzzleCardPrefab();
 
         EditorSceneManager.MarkSceneDirty(scene);
+    }
+
+    static GameObject CreatePuzzleCardPrefab()
+    {
+        string prefabPath = "Assets/_Project/Prefabs/PuzzleCard.prefab";
+        var existing = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+        if (existing != null) return existing;
+
+        var card = new GameObject("PuzzleCard", typeof(RectTransform));
+        var puzzleCard = card.AddComponent<PuzzleCard>();
+
+        var bg = new GameObject("Background", typeof(RectTransform));
+        bg.transform.SetParent(card.transform, false);
+        var img = bg.AddComponent<UnityEngine.UI.Image>();
+        img.color = new Color(0.2f, 0.2f, 0.2f, 0.8f);
+        var bgRT = bg.GetComponent<RectTransform>();
+        bgRT.anchorMin = Vector2.zero;
+        bgRT.anchorMax = Vector2.one;
+        bgRT.offsetMin = Vector2.zero;
+        bgRT.offsetMax = Vector2.zero;
+
+        var nameGO = new GameObject("NameText", typeof(RectTransform));
+        nameGO.transform.SetParent(card.transform, false);
+        var nameText = nameGO.AddComponent<TMPro.TextMeshPro>();
+        nameText.text = "Puzzle Name";
+        nameText.fontSize = 0.12f;
+        nameText.alignment = TMPro.TextAlignmentOptions.TopLeft;
+        nameText.color = Color.white;
+        var nameRT = nameGO.GetComponent<RectTransform>();
+        nameRT.anchorMin = new Vector2(0, 0.5f);
+        nameRT.anchorMax = new Vector2(1, 1);
+        nameRT.offsetMin = new Vector2(0.02f, 0);
+        nameRT.offsetMax = new Vector2(-0.02f, -0.02f);
+        puzzleCard.nameText = nameText;
+
+        var countGO = new GameObject("CountText", typeof(RectTransform));
+        countGO.transform.SetParent(card.transform, false);
+        var countText = countGO.AddComponent<TMPro.TextMeshPro>();
+        countText.text = "0 pieces";
+        countText.fontSize = 0.08f;
+        countText.alignment = TMPro.TextAlignmentOptions.TopLeft;
+        countText.color = Color.gray;
+        var countRT = countGO.GetComponent<RectTransform>();
+        countRT.anchorMin = new Vector2(0, 0);
+        countRT.anchorMax = new Vector2(1, 0.5f);
+        countRT.offsetMin = new Vector2(0.02f, 0.02f);
+        countRT.offsetMax = new Vector2(-0.02f, -0.02f);
+        puzzleCard.pieceCountText = countText;
+
+        Directory.CreateDirectory("Assets/_Project/Prefabs");
+        var prefab = PrefabUtility.SaveAsPrefabAsset(card, prefabPath);
+        Object.DestroyImmediate(card);
+        return prefab;
     }
 
     static GameObject CreateXROrigin()
@@ -282,7 +360,8 @@ public class JigsawSceneSetup : EditorWindow
     [MenuItem("Jigsaw/Test Puzzle Scene")]
     static void TestPuzzleScene()
     {
-        string folder = EditorUtility.OpenFolderPanel("Select Puzzle Folder", Application.persistentDataPath, "");
+        string defaultPath = System.IO.Path.Combine(Application.dataPath, "_Project", "Puzzels");
+        string folder = EditorUtility.OpenFolderPanel("Select Puzzle Folder", defaultPath, "");
         if (string.IsNullOrEmpty(folder)) return;
 
         PuzzleManager.PuzzleFolderPath = folder;

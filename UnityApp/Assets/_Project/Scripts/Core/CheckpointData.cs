@@ -6,7 +6,7 @@ public class CheckpointData
     public string source;
     public int piece_count;
     public float gap;
-    public int seed;
+    public int? seed;
     public TotalBounds total_bounds;
     public float[][] piece_centroids;
     public int[] piece_vertex_counts;

@@ -1,0 +1,200 @@
+{
+  "name": "XRI_Jigsaw",
+  "maps": [
+    {
+      "name": "Jigsaw",
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "actions": [
+        {
+          "name": "LeftLaserToggle",
+          "type": "Button",
+          "id": "a1000000-0000-0000-0000-000000000001",
+          "expectedControlType": "Button",
+          "processors": "",
+          "interactions": "",
+          "initialStateCheck": false
+        },
+        {
+          "name": "LeftTrigger",
+          "type": "Button",
+          "id": "a1000000-0000-0000-0000-000000000002",
+          "expectedControlType": "Button",
+          "processors": "",
+          "interactions": "",
+          "initialStateCheck": false
+        },
+        {
+          "name": "LeftReturn",
+          "type": "Button",
+          "id": "a1000000-0000-0000-0000-000000000003",
+          "expectedControlType": "Button",
+          "processors": "",
+          "interactions": "",
+          "initialStateCheck": false
+        },
+        {
+          "name": "LeftGrip",
+          "type": "Button",
+          "id": "a1000000-0000-0000-0000-000000000004",
+          "expectedControlType": "Button",
+          "processors": "",
+          "interactions": "",
+          "initialStateCheck": false
+        },
+        {
+          "name": "RightLaserToggle",
+          "type": "Button",
+          "id": "a1000000-0000-0000-0000-000000000005",
+          "expectedControlType": "Button",
+          "processors": "",
+          "interactions": "",
+          "initialStateCheck": false
+        },
+        {
+          "name": "RightTrigger",
+          "type": "Button",
+          "id": "a1000000-0000-0000-0000-000000000006",
+          "expectedControlType": "Button",
+          "processors": "",
+          "interactions": "",
+          "initialStateCheck": false
+        },
+        {
+          "name": "RightReturn",
+          "type": "Button",
+          "id": "a1000000-0000-0000-0000-000000000007",
+          "expectedControlType": "Button",
+          "processors": "",
+          "interactions": "",
+          "initialStateCheck": false
+        },
+        {
+          "name": "RightGrip",
+          "type": "Button",
+          "id": "a1000000-0000-0000-0000-000000000008",
+          "expectedControlType": "Button",
+          "processors": "",
+          "interactions": "",
+          "initialStateCheck": false
+        },
+        {
+          "name": "SnapTurn",
+          "type": "Value",
+          "id": "a1000000-0000-0000-0000-000000000009",
+          "expectedControlType": "Vector2",
+          "processors": "",
+          "interactions": "",
+          "initialStateCheck": false
+        }
+      ],
+      "bindings": [
+        {
+          "name": "",
+          "id": "b1000000-0000-0000-0000-000000000001",
+          "path": "<XRController>{LeftHand}/primaryButton",
+          "interactions": "",
+          "processors": "",
+          "groups": "XR Controller",
+          "action": "LeftLaserToggle",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "b1000000-0000-0000-0000-000000000002",
+          "path": "<XRController>{LeftHand}/triggerPressed",
+          "interactions": "",
+          "processors": "",
+          "groups": "XR Controller",
+          "action": "LeftTrigger",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "b1000000-0000-0000-0000-000000000003",
+          "path": "<XRController>{LeftHand}/secondaryButton",
+          "interactions": "",
+          "processors": "",
+          "groups": "XR Controller",
+          "action": "LeftReturn",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "b1000000-0000-0000-0000-000000000004",
+          "path": "<XRController>{LeftHand}/gripPressed",
+          "interactions": "",
+          "processors": "",
+          "groups": "XR Controller",
+          "action": "LeftGrip",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "b1000000-0000-0000-0000-000000000005",
+          "path": "<XRController>{RightHand}/secondaryButton",
+          "interactions": "",
+          "processors": "",
+          "groups": "XR Controller",
+          "action": "RightLaserToggle",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "b1000000-0000-0000-0000-000000000006",
+          "path": "<XRController>{RightHand}/triggerPressed",
+          "interactions": "",
+          "processors": "",
+          "groups": "XR Controller",
+          "action": "RightTrigger",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "b1000000-0000-0000-0000-000000000007",
+          "path": "<XRController>{RightHand}/primaryButton",
+          "interactions": "",
+          "processors": "",
+          "groups": "XR Controller",
+          "action": "RightReturn",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "b1000000-0000-0000-0000-000000000008",
+          "path": "<XRController>{RightHand}/gripPressed",
+          "interactions": "",
+          "processors": "",
+          "groups": "XR Controller",
+          "action": "RightGrip",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "b1000000-0000-0000-0000-000000000009",
+          "path": "<XRController>{RightHand}/thumbstick",
+          "interactions": "",
+          "processors": "",
+          "groups": "XR Controller",
+          "action": "SnapTurn",
+          "isComposite": false,
+          "isPartOfComposite": false
+        }
+      ]
+    }
+  ],
+  "controlSchemes": [
+    {
+      "name": "XR Controller",
+      "bindingGroup": "XR Controller",
+      "devices": []
+    }
+  ]
+}

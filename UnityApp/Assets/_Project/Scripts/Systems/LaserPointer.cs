@@ -29,6 +29,8 @@ public class LaserPointer : MonoBehaviour
     public float maxDistance = 4f;
     /// <summary>Duration of the fly-to-hand animation when pulling a piece.</summary>
     public float flyToHandDuration = 0.25f;
+    /// <summary>Distance in front of the controller the piece lands when pulled.</summary>
+    public float flyHoldDistance = 0.2f;
     /// <summary>Layers the laser raycast can hit.</summary>
     public LayerMask layerMask = -1;
 
@@ -49,11 +51,12 @@ public class LaserPointer : MonoBehaviour
     {
         if (Hand == HandSide.Unset)
         {
-            string parentName = transform.parent != null ? transform.parent.name : "";
-            Hand = parentName.Contains("Left") ? HandSide.Left : HandSide.Right;
+            Hand = gameObject.name.Contains("Left") ? HandSide.Left : HandSide.Right;
         }
 
-        if (TryLoadInputActions())
+        var loaded = TryLoadInputActions();
+        Debug.Log($"[LaserPointer] {gameObject.name} Awake: Hand={Hand}, actionsLoaded={loaded}, toggleAction={(toggleAction != null ? "found" : "null")}, triggerAction={(triggerAction != null ? "found" : "null")}");
+        if (loaded)
             BindInput();
     }
 
@@ -62,13 +65,31 @@ public class LaserPointer : MonoBehaviour
     bool TryLoadInputActions()
     {
         var jsonAsset = Resources.Load<TextAsset>("XRI_Jigsaw");
-        if (jsonAsset != null)
+        if (jsonAsset == null)
+        {
+            Debug.LogError("[LaserPointer] XRI_Jigsaw.json not found in Resources!");
+            return false;
+        }
+
+        try
         {
             inputActions = InputActionAsset.FromJson(jsonAsset.text);
-            jigsawMap = inputActions.FindActionMap("Jigsaw");
-            return jigsawMap != null;
         }
-        return false;
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[LaserPointer] Failed to parse XRI_Jigsaw.json: {e.Message}");
+            return false;
+        }
+
+        jigsawMap = inputActions.FindActionMap("Jigsaw");
+        if (jigsawMap == null)
+        {
+            Debug.LogError("[LaserPointer] Action map 'Jigsaw' not found in loaded asset!");
+            return false;
+        }
+
+        Debug.Log($"[LaserPointer] Successfully loaded Jigsaw action map with {jigsawMap.actions.Count} actions");
+        return true;
     }
 
     /// <summary>Binds the laser toggle and trigger actions to their handlers.</summary>
@@ -106,7 +127,11 @@ public class LaserPointer : MonoBehaviour
             triggerAction.performed -= OnTriggerPerformed;
     }
 
-    void OnTogglePerformed(InputAction.CallbackContext ctx) => OnToggleButton();
+    void OnTogglePerformed(InputAction.CallbackContext ctx)
+    {
+        Debug.Log($"[LaserPointer] {gameObject.name} toggle button pressed, wasActive={isActive}");
+        OnToggleButton();
+    }
     void OnTriggerPerformed(InputAction.CallbackContext ctx) => OnTriggerButton();
 
     void Update()
@@ -168,8 +193,9 @@ public class LaserPointer : MonoBehaviour
     /// <param name="piece">The piece to pull.</param>
     private void PullPiece(PieceState piece)
     {
+        Vector3 targetPos = pieceHolder.attachPoint.position + controllerTransform.forward * flyHoldDistance;
         piece.TransitionTo(PieceStateEnum.FlyingToHand);
-        piece.FlyToPosition(pieceHolder.attachPoint.position, flyToHandDuration, () =>
+        piece.FlyToPosition(targetPos, flyToHandDuration, () =>
         {
             if (pieceHolder != null)
                 pieceHolder.GrabPiece(piece);

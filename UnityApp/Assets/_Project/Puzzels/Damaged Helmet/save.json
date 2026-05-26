@@ -1,10 +1,95 @@
 {
     "version": 1,
-    "timestamp": "2026-05-26T22:12:02.1694669+01:00",
+    "timestamp": "2026-05-26T23:04:55.1542916+01:00",
     "completionPercent": 0.10000000149011612,
     "pieceStates": [
         {
-            "pieceId": 5,
+            "pieceId": 0,
+            "state": "on_wall",
+            "wallSlot": -1,
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "clusterId": 0
+        },
+        {
+            "pieceId": 3,
+            "state": "on_wall",
+            "wallSlot": -1,
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "clusterId": 0
+        },
+        {
+            "pieceId": 9,
+            "state": "on_wall",
+            "wallSlot": -1,
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "clusterId": 0
+        },
+        {
+            "pieceId": 8,
+            "state": "on_wall",
+            "wallSlot": -1,
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "clusterId": 0
+        },
+        {
+            "pieceId": 0,
+            "state": "on_wall",
+            "wallSlot": 9,
+            "position": [
+                -0.5618702173233032,
+                2.2413406372070314,
+                0.5
+            ],
+            "rotation": [
+                0.0,
+                1.0,
+                0.0,
+                0.0
+            ],
+            "clusterId": 0
+        },
+        {
+            "pieceId": 2,
             "state": "on_wall",
             "wallSlot": -1,
             "position": [
@@ -38,12 +123,12 @@
             "clusterId": 0
         },
         {
-            "pieceId": 7,
+            "pieceId": 8,
             "state": "on_wall",
-            "wallSlot": 8,
+            "wallSlot": 1,
             "position": [
-                -1.6856107711791993,
-                2.2413406372070314,
+                -0.5618702173233032,
+                -0.006140589714050293,
                 0.5
             ],
             "rotation": [
@@ -52,7 +137,58 @@
                 0.0,
                 0.0
             ],
-            "clusterId": 7
+            "clusterId": 8
+        },
+        {
+            "pieceId": 6,
+            "state": "on_wall",
+            "wallSlot": 3,
+            "position": [
+                1.6856108903884888,
+                -0.006140589714050293,
+                0.5
+            ],
+            "rotation": [
+                0.0,
+                1.0,
+                0.0,
+                0.0
+            ],
+            "clusterId": 6
+        },
+        {
+            "pieceId": 1,
+            "state": "on_wall",
+            "wallSlot": -1,
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "clusterId": 0
+        },
+        {
+            "pieceId": 0,
+            "state": "on_wall",
+            "wallSlot": -1,
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "clusterId": 0
         },
         {
             "pieceId": 5,
@@ -89,24 +225,7 @@
             "clusterId": 2
         },
         {
-            "pieceId": 1,
-            "state": "on_wall",
-            "wallSlot": 0,
-            "position": [
-                -1.6856107711791993,
-                -0.006140589714050293,
-                0.5
-            ],
-            "rotation": [
-                0.0,
-                1.0,
-                0.0,
-                0.0
-            ],
-            "clusterId": 1
-        },
-        {
-            "pieceId": 0,
+            "pieceId": 2,
             "state": "on_wall",
             "wallSlot": -1,
             "position": [
@@ -140,160 +259,7 @@
             "clusterId": 9
         },
         {
-            "pieceId": 0,
-            "state": "on_wall",
-            "wallSlot": 9,
-            "position": [
-                -0.5618702173233032,
-                2.2413406372070314,
-                0.5
-            ],
-            "rotation": [
-                0.0,
-                1.0,
-                0.0,
-                0.0
-            ],
-            "clusterId": 0
-        },
-        {
-            "pieceId": 4,
-            "state": "on_wall",
-            "wallSlot": 5,
-            "position": [
-                -0.5618702173233032,
-                1.1175999641418458,
-                0.5
-            ],
-            "rotation": [
-                0.0,
-                1.0,
-                0.0,
-                0.0
-            ],
-            "clusterId": 4
-        },
-        {
-            "pieceId": 5,
-            "state": "on_wall",
-            "wallSlot": -1,
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rotation": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "clusterId": 0
-        },
-        {
-            "pieceId": 1,
-            "state": "on_wall",
-            "wallSlot": -1,
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rotation": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "clusterId": 0
-        },
-        {
-            "pieceId": 2,
-            "state": "on_wall",
-            "wallSlot": -1,
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rotation": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "clusterId": 0
-        },
-        {
-            "pieceId": 2,
-            "state": "on_wall",
-            "wallSlot": -1,
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rotation": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "clusterId": 0
-        },
-        {
             "pieceId": 3,
-            "state": "on_wall",
-            "wallSlot": -1,
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rotation": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "clusterId": 0
-        },
-        {
-            "pieceId": 7,
-            "state": "on_wall",
-            "wallSlot": -1,
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rotation": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "clusterId": 0
-        },
-        {
-            "pieceId": 8,
-            "state": "on_wall",
-            "wallSlot": 1,
-            "position": [
-                -0.5618702173233032,
-                -0.006140589714050293,
-                0.5
-            ],
-            "rotation": [
-                0.0,
-                1.0,
-                0.0,
-                0.0
-            ],
-            "clusterId": 8
-        },
-        {
-            "pieceId": 4,
             "state": "on_wall",
             "wallSlot": -1,
             "position": [
@@ -327,59 +293,25 @@
             "clusterId": 0
         },
         {
-            "pieceId": 9,
-            "state": "on_wall",
-            "wallSlot": -1,
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rotation": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "clusterId": 0
-        },
-        {
-            "pieceId": 9,
-            "state": "on_wall",
-            "wallSlot": -1,
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rotation": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "clusterId": 0
-        },
-        {
-            "pieceId": 8,
-            "state": "on_wall",
-            "wallSlot": -1,
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rotation": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "clusterId": 0
-        },
-        {
             "pieceId": 1,
             "state": "on_wall",
+            "wallSlot": 0,
+            "position": [
+                -1.6856107711791993,
+                -0.006140589714050293,
+                0.5
+            ],
+            "rotation": [
+                0.0,
+                1.0,
+                0.0,
+                0.0
+            ],
+            "clusterId": 1
+        },
+        {
+            "pieceId": 7,
+            "state": "on_wall",
             "wallSlot": -1,
             "position": [
                 0.0,
@@ -393,6 +325,23 @@
                 1.0
             ],
             "clusterId": 0
+        },
+        {
+            "pieceId": 7,
+            "state": "on_wall",
+            "wallSlot": 8,
+            "position": [
+                -1.6856107711791993,
+                2.2413406372070314,
+                0.5
+            ],
+            "rotation": [
+                0.0,
+                1.0,
+                0.0,
+                0.0
+            ],
+            "clusterId": 7
         },
         {
             "pieceId": 3,
@@ -412,75 +361,41 @@
             "clusterId": 3
         },
         {
-            "pieceId": 7,
-            "state": "on_wall",
-            "wallSlot": -1,
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rotation": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "clusterId": 0
-        },
-        {
-            "pieceId": 6,
-            "state": "on_wall",
-            "wallSlot": 3,
-            "position": [
-                1.6856108903884888,
-                -0.006140589714050293,
-                0.5
-            ],
-            "rotation": [
-                0.0,
-                1.0,
-                0.0,
-                0.0
-            ],
-            "clusterId": 6
-        },
-        {
-            "pieceId": 3,
-            "state": "on_wall",
-            "wallSlot": -1,
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rotation": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "clusterId": 0
-        },
-        {
-            "pieceId": 0,
-            "state": "on_wall",
-            "wallSlot": -1,
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rotation": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "clusterId": 0
-        },
-        {
             "pieceId": 8,
+            "state": "on_wall",
+            "wallSlot": -1,
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "clusterId": 0
+        },
+        {
+            "pieceId": 9,
+            "state": "on_wall",
+            "wallSlot": -1,
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "clusterId": 0
+        },
+        {
+            "pieceId": 1,
             "state": "on_wall",
             "wallSlot": -1,
             "position": [
@@ -512,6 +427,91 @@
                 1.0
             ],
             "clusterId": 0
+        },
+        {
+            "pieceId": 4,
+            "state": "floating",
+            "wallSlot": -1,
+            "position": [
+                0.10023973137140274,
+                1.3396682739257813,
+                -3.1772677898406984
+            ],
+            "rotation": [
+                -0.37136444449424746,
+                0.045602791011333469,
+                0.14819835126399995,
+                0.9154486060142517
+            ],
+            "clusterId": 0
+        },
+        {
+            "pieceId": 5,
+            "state": "on_wall",
+            "wallSlot": -1,
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "clusterId": 0
+        },
+        {
+            "pieceId": 7,
+            "state": "on_wall",
+            "wallSlot": -1,
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "clusterId": 0
+        },
+        {
+            "pieceId": 5,
+            "state": "on_wall",
+            "wallSlot": -1,
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rotation": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "clusterId": 0
+        },
+        {
+            "pieceId": 4,
+            "state": "floating",
+            "wallSlot": 5,
+            "position": [
+                -0.07703752815723419,
+                1.5182892084121705,
+                -3.1832451820373537
+            ],
+            "rotation": [
+                -0.16447420418262483,
+                -0.21617503464221955,
+                0.18662720918655396,
+                0.944132924079895
+            ],
+            "clusterId": 4
         }
     ],
     "clusters": [

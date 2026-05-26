@@ -8,8 +8,14 @@ using UnityEngine.Rendering.Universal;
 using UnityEngine.InputSystem.XR;
 using UnityEngine.InputSystem.UI;
 
+/// <summary>
+/// Editor window with menu commands for setting up Jigsaw VR scenes, configuring project settings,
+/// and testing puzzles directly from the Editor. Provides one-click scene creation for Bootstrap,
+/// MainMenu, and PuzzleScene with all required components and references.
+/// </summary>
 public class JigsawSceneSetup : EditorWindow
 {
+    /// <summary>Creates a new PuzzleScene with all required GameObjects and component references.</summary>
     [MenuItem("Jigsaw/Setup Puzzle Scene")]
     static void SetupPuzzleScene()
     {
@@ -24,6 +30,7 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log($"PuzzleScene created at {scenePath}");
     }
 
+    /// <summary>Creates a new MainMenu scene with XR Origin, MenuManager, UI canvas, and puzzle card prefab.</summary>
     [MenuItem("Jigsaw/Setup Main Menu Scene")]
     static void SetupMainMenuScene()
     {
@@ -38,6 +45,7 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log($"MainMenu created at {scenePath}");
     }
 
+    /// <summary>Runs all setup steps: creates all three scenes and configures project/build settings.</summary>
     [MenuItem("Jigsaw/Setup All Scenes & Project Settings")]
     static void SetupAll()
     {
@@ -50,6 +58,7 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log("Jigsaw VR project fully configured!");
     }
 
+    /// <summary>Creates an empty Bootstrap scene.</summary>
     static void SetupBootstrapScene()
     {
         string sceneDir = "Assets/_Project/Scenes";
@@ -59,6 +68,8 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log($"Bootstrap created at {scenePath}");
     }
 
+    /// <summary>Populates the PuzzleScene with all required GameObjects (PuzzleManager, WallGrid, SnapSystem, etc.) and links references.</summary>
+    /// <param name="scene">The scene to populate.</param>
     static void CreatePuzzleScene(Scene scene)
     {
         CreateDirectionalLight();
@@ -97,6 +108,8 @@ public class JigsawSceneSetup : EditorWindow
         EditorSceneManager.MarkSceneDirty(scene);
     }
 
+    /// <summary>Populates the MainMenu scene with XR Origin, MenuManager, UI canvas, and a PuzzleCard prefab.</summary>
+    /// <param name="scene">The scene to populate.</param>
     static void CreateMainMenuScene(Scene scene)
     {
         CreateDirectionalLight();
@@ -140,6 +153,8 @@ public class JigsawSceneSetup : EditorWindow
         EditorSceneManager.MarkSceneDirty(scene);
     }
 
+    /// <summary>Creates or loads the PuzzleCard prefab with UI sub-objects (background, name text, count text).</summary>
+    /// <returns>The existing or newly created PuzzleCard prefab.</returns>
     static GameObject CreatePuzzleCardPrefab()
     {
         string prefabPath = "Assets/_Project/Prefabs/PuzzleCard.prefab";
@@ -193,6 +208,8 @@ public class JigsawSceneSetup : EditorWindow
         return prefab;
     }
 
+    /// <summary>Creates a full XR Origin hierarchy with camera floor offset, main camera, left/right controllers, and laser pointer setup.</summary>
+    /// <returns>The root XR Origin GameObject.</returns>
     static GameObject CreateXROrigin()
     {
         var xrOrigin = new GameObject("XR Origin");
@@ -228,6 +245,8 @@ public class JigsawSceneSetup : EditorWindow
         return xrOrigin;
     }
 
+    /// <summary>Adds XR interactors, LineRenderer, and attach point to a controller GameObject.</summary>
+    /// <param name="controller">The controller GameObject to configure.</param>
     static void SetupController(GameObject controller)
     {
         var interactor = controller.AddComponent<UnityEngine.XR.Interaction.Toolkit.Interactors.XRDirectInteractor>();
@@ -241,6 +260,9 @@ public class JigsawSceneSetup : EditorWindow
         attachPoint.transform.SetParent(controller.transform);
     }
 
+    /// <summary>Adds LaserPointer and PieceHolder components to a controller and wires them together.</summary>
+    /// <param name="controller">The controller GameObject to configure.</param>
+    /// <param name="hand">Hand identifier ("LeftHand" or "RightHand").</param>
     static void SetupLaserPointer(GameObject controller, string hand)
     {
         var laser = controller.AddComponent<LaserPointer>();
@@ -258,6 +280,7 @@ public class JigsawSceneSetup : EditorWindow
         laser.pieceHolder = pieceHolder;
     }
 
+    /// <summary>Links cross-references between PuzzleScene GameObjects (e.g., SnapSystem needs PieceHolder references).</summary>
     static void LinkPuzzleSceneReferences(GameObject puzzleManager, GameObject wallGrid, GameObject snapSystem,
         GameObject saveSystem, GameObject completionFX, GameObject audioManager, GameObject xrOrigin)
     {
@@ -288,6 +311,7 @@ public class JigsawSceneSetup : EditorWindow
         snap.audioManager = audioManager.GetComponent<AudioManager>();
     }
 
+    /// <summary>Configures Android player settings (API level, IL2CPP, architecture) and URP quality settings.</summary>
     [MenuItem("Jigsaw/Configure Project Settings")]
     static void ConfigureProjectSettings()
     {
@@ -319,6 +343,7 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log("Project settings configured for Jigsaw VR");
     }
 
+    /// <summary>Adds the Bootstrap, MainMenu, and PuzzleScene to the build's scene list.</summary>
     static void ConfigureBuildSettings()
     {
         var scenes = new[]
@@ -357,6 +382,7 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log("Build settings configured");
     }
 
+    /// <summary>Opens a folder picker to select a puzzle, sets PuzzleManager statics, and enters play mode.</summary>
     [MenuItem("Jigsaw/Test Puzzle Scene")]
     static void TestPuzzleScene()
     {
@@ -379,6 +405,7 @@ public class JigsawSceneSetup : EditorWindow
         }
     }
 
+    /// <summary>Creates a directional light with soft shadows for the scene.</summary>
     static void CreateDirectionalLight()
     {
         var lightGO = new GameObject("Directional Light");
@@ -390,6 +417,7 @@ public class JigsawSceneSetup : EditorWindow
         lightGO.transform.rotation = Quaternion.Euler(50, -30, 0);
     }
 
+    /// <summary>Creates an EventSystem with InputSystemUIInputModule for UI interactions.</summary>
     static void CreateEventSystem()
     {
         var es = new GameObject("EventSystem");

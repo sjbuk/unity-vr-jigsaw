@@ -3,19 +3,31 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
 
+/// <summary>
+/// Checks for adjacency-based snapping between pieces held in opposite hands.
+/// Manages clusters of snapped pieces, triggers audio/particle/haptic feedback on snap,
+/// and detects when the puzzle is complete (single cluster remains).
+/// </summary>
 public class SnapSystem : MonoBehaviour
 {
+    /// <summary>Reference to the left hand piece holder.</summary>
     public PieceHolder leftHolder;
+    /// <summary>Reference to the right hand piece holder.</summary>
     public PieceHolder rightHolder;
+    /// <summary>Maximum distance for two pieces to be considered snapped.</summary>
     public float snapRadius = 0.08f;
 
+    /// <summary>Audio manager for playing snap sounds.</summary>
     public AudioManager audioManager;
+    /// <summary>Particle system prefab instantiated at snap positions.</summary>
     public ParticleSystem snapParticles;
 
     private Dictionary<(int, int), Vector3> adjacencyMap;
     private Dictionary<int, HashSet<int>> clusters;
     private Dictionary<int, PieceState> pieceRegistry;
 
+    /// <summary>Builds the adjacency map from checkpoint data.</summary>
+    /// <param name="adjacencyData">Array of adjacency entries from checkpoint.json.</param>
     public void Initialize(AdjacencyEntry[] adjacencyData)
     {
         adjacencyMap = new Dictionary<(int, int), Vector3>();
@@ -30,6 +42,8 @@ public class SnapSystem : MonoBehaviour
         }
     }
 
+    /// <summary>Initializes each piece as its own singleton cluster.</summary>
+    /// <param name="allPieces">Array of all piece states.</param>
     public void InitializeClusters(PieceState[] allPieces)
     {
         clusters = new Dictionary<int, HashSet<int>>();
@@ -44,11 +58,15 @@ public class SnapSystem : MonoBehaviour
         }
     }
 
+    /// <summary>Sets the piece registry for looking up piece states by ID.</summary>
+    /// <param name="registry">Dictionary mapping piece IDs to their PieceState.</param>
     public void SetPieceRegistry(Dictionary<int, PieceState> registry)
     {
         pieceRegistry = registry;
     }
 
+    /// <summary>Restores cluster data from a saved game.</summary>
+    /// <param name="savedClusters">Array of saved cluster entries.</param>
     public void RestoreClusters(SaveManager.ClusterSaveEntry[] savedClusters)
     {
         if (savedClusters == null) return;
@@ -85,6 +103,10 @@ public class SnapSystem : MonoBehaviour
         }
     }
 
+    /// <summary>Checks if two pieces are close enough to snap together based on adjacency data.</summary>
+    /// <param name="pieceA">First piece ID.</param>
+    /// <param name="pieceB">Second piece ID.</param>
+    /// <returns>True if the pieces snapped.</returns>
     private bool TrySnap(int pieceA, int pieceB)
     {
         var key = (pieceA, pieceB);
@@ -113,6 +135,7 @@ public class SnapSystem : MonoBehaviour
         return false;
     }
 
+    /// <summary>Applies the snap: moves the cluster, merges it, and triggers feedback.</summary>
     private void ResolveSnap(int pieceA, int pieceB, Vector3 correctionDelta)
     {
         MoveCluster(pieceA, correctionDelta);
@@ -140,12 +163,14 @@ public class SnapSystem : MonoBehaviour
         }
     }
 
+    /// <summary>Sends a haptic impulse to an XR controller.</summary>
     private void HapticPulse(XRBaseController controller, float amplitude, float duration)
     {
         if (controller != null)
             controller.SendHapticImpulse(amplitude, duration);
     }
 
+    /// <summary>Gets the transform of a piece by its ID.</summary>
     private Transform GetTransform(int pieceId)
     {
         if (pieceRegistry != null && pieceRegistry.TryGetValue(pieceId, out var state))
@@ -153,10 +178,13 @@ public class SnapSystem : MonoBehaviour
         return null;
     }
 
+    /// <summary>Returns the total number of active clusters.</summary>
     public int GetClusterCount() => clusters?.Count ?? 0;
 
+    /// <summary>Returns the cluster dictionary for save/restore purposes.</summary>
     public Dictionary<int, HashSet<int>> GetClusters() => clusters;
 
+    /// <summary>Gets all members of the cluster a piece belongs to.</summary>
     public HashSet<int> GetClusterMembers(PieceState piece)
     {
         if (piece == null || clusters == null) return null;
@@ -165,6 +193,7 @@ public class SnapSystem : MonoBehaviour
         return null;
     }
 
+    /// <summary>Merges two clusters into one (cluster B is absorbed into cluster A).</summary>
     private void MergeClusters(int pieceA, int pieceB)
     {
         int clusterA = GetClusterId(pieceA);
@@ -186,6 +215,7 @@ public class SnapSystem : MonoBehaviour
         clusters.Remove(clusterB);
     }
 
+    /// <summary>Moves all pieces in a cluster by a given delta.</summary>
     private void MoveCluster(int memberPiece, Vector3 delta)
     {
         int clusterId = GetClusterId(memberPiece);
@@ -200,6 +230,7 @@ public class SnapSystem : MonoBehaviour
         }
     }
 
+    /// <summary>Gets the cluster ID for a given piece ID.</summary>
     private int GetClusterId(int pieceId)
     {
         if (pieceRegistry != null && pieceRegistry.TryGetValue(pieceId, out var state))

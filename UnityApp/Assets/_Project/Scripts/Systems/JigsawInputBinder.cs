@@ -1,6 +1,11 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+/// <summary>
+/// Central input binding manager that discovers LaserPointer and PieceHolder components
+/// on child GameObjects and wires them up to the XRI_Jigsaw input action map.
+/// Provides a single point of input configuration for both hands.
+/// </summary>
 public class JigsawInputBinder : MonoBehaviour
 {
     [SerializeField] private InputActionAsset inputActions;
@@ -37,6 +42,7 @@ public class JigsawInputBinder : MonoBehaviour
         BindActions();
     }
 
+    /// <summary>Finds LaserPointer and PieceHolder components on child objects and assigns them by hand side.</summary>
     void FindComponents()
     {
         var lasers = GetComponentsInChildren<LaserPointer>(true);
@@ -67,6 +73,7 @@ public class JigsawInputBinder : MonoBehaviour
         }
     }
 
+    /// <summary>Binds all left and right hand input actions to their respective handlers.</summary>
     void BindActions()
     {
         Bind(jigsawMap.FindAction("LeftLaserToggle"),  OnLeftLaserToggle);
@@ -80,6 +87,10 @@ public class JigsawInputBinder : MonoBehaviour
         Bind(jigsawMap.FindAction("RightGrip"),         OnRightGripPressed, OnRightGripReleased);
     }
 
+    /// <summary>Wires an input action's performed and optional canceled events to the given callbacks.</summary>
+    /// <param name="action">The input action to bind.</param>
+    /// <param name="performed">Callback for the performed event.</param>
+    /// <param name="canceled">Optional callback for the canceled event.</param>
     void Bind(InputAction action, System.Action<InputAction.CallbackContext> performed,
               System.Action<InputAction.CallbackContext> canceled = null)
     {

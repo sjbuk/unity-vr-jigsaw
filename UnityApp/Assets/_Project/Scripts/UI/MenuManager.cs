@@ -2,9 +2,12 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using UnityEngine.UI;
 using UnityEngine.InputSystem;
 
+/// <summary>
+/// Manages the main menu scene: discovers puzzle folders, creates interactive cards for each,
+/// and handles puzzle start/reset actions.
+/// </summary>
 public class MenuManager : MonoBehaviour
 {
     public GameObject puzzleCardPrefab;
@@ -45,6 +48,7 @@ public class MenuManager : MonoBehaviour
         ArrangePanels();
     }
 
+    /// <summary>Sets up the UI canvas container for puzzle cards, using an existing canvas or creating a new one.</summary>
     void SetupContainer()
     {
         var existingCanvas = GameObject.Find("UI Canvas");
@@ -68,6 +72,7 @@ public class MenuManager : MonoBehaviour
         Debug.Log($"[MenuManager] Created fresh canvas container at {workingContainer.position}");
     }
 
+    /// <summary>Scans the puzzles directory for valid puzzle folders with checkpoint.json and creates PuzzleInfo entries.</summary>
     void DiscoverPuzzles()
     {
         discoveredPuzzles = new List<PuzzleInfo>();
@@ -135,6 +140,7 @@ public class MenuManager : MonoBehaviour
         }
     }
 
+    /// <summary>Instantiates PuzzleCard prefabs for each discovered puzzle and arranges them in a horizontal row.</summary>
     void ArrangePanels()
     {
         int count = discoveredPuzzles.Count;
@@ -160,12 +166,16 @@ public class MenuManager : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             var card = Instantiate(puzzleCardPrefab, workingContainer);
-            float angle = Mathf.Lerp(-30f, 30f, count > 1 ? (float)i / (count - 1) : 0.5f);
-            float rad = angle * Mathf.Deg2Rad;
-
             Vector3 forward = cam.transform.forward;
             Vector3 right = cam.transform.right;
-            Vector3 worldCenter = cam.transform.position + forward * menuForwardDistance + Vector3.up * menuHeight + right * Mathf.Sin(rad) * panelDistance;
+
+            float totalWidth = (count - 1) * cardSpacing;
+            float offsetX = -totalWidth * 0.5f + i * cardSpacing;
+
+            Vector3 worldCenter = cam.transform.position + forward * menuForwardDistance
+                + Vector3.up * menuHeight
+                + right * offsetX;
+
             card.transform.position = worldCenter;
             card.transform.localScale = new Vector3(cardWorldScale, cardWorldScale, cardWorldScale);
             card.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
@@ -180,6 +190,9 @@ public class MenuManager : MonoBehaviour
         }
     }
 
+    /// <summary>Starts a puzzle by setting the static PuzzleManager fields and loading the PuzzleScene.</summary>
+    /// <param name="puzzle">The puzzle info to load.</param>
+    /// <param name="resume">If true, resumes from save; otherwise starts a new game.</param>
     public void OnStartPuzzle(PuzzleInfo puzzle, bool resume)
     {
         PuzzleManager.PuzzleFolderPath = puzzle.folderPath;
@@ -187,6 +200,8 @@ public class MenuManager : MonoBehaviour
         SceneManager.LoadScene("PuzzleScene");
     }
 
+    /// <summary>Deletes the save file for a puzzle and refreshes the menu cards.</summary>
+    /// <param name="puzzle">The puzzle to reset.</param>
     public void OnResetPuzzle(PuzzleInfo puzzle)
     {
         File.Delete(Path.Combine(puzzle.folderPath, "save.json"));
@@ -197,13 +212,22 @@ public class MenuManager : MonoBehaviour
     }
 }
 
+/// <summary>
+/// Metadata for a discovered puzzle, including its folder path, thumbnail, and save progress.
+/// </summary>
 [System.Serializable]
 public class PuzzleInfo
 {
+    /// <summary>Full path to the puzzle folder.</summary>
     public string folderPath;
+    /// <summary>Display name derived from the folder name.</summary>
     public string name;
+    /// <summary>Number of pieces in the puzzle.</summary>
     public int pieceCount;
+    /// <summary>Path to the preview thumbnail image, or null if not found.</summary>
     public string thumbnailPath;
+    /// <summary>Completion progress (0–1) from the save file, or 0 if unsaved.</summary>
     public float progress;
+    /// <summary>Whether a save file exists for this puzzle.</summary>
     public bool hasSave;
 }

@@ -382,6 +382,35 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log("Build settings configured");
     }
 
+    /// <summary>Adds the XR Device Simulator prefab to the current scene for controller-free testing.</summary>
+    [MenuItem("Jigsaw/Add XR Device Simulator")]
+    static void AddXRDeviceSimulator()
+    {
+        var existing = FindObjectOfType<UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation.XRDeviceSimulator>();
+        if (existing != null)
+        {
+            Debug.Log("XR Device Simulator already exists in the scene. Selecting it.");
+            Selection.activeGameObject = existing.gameObject;
+            EditorGUIUtility.PingObject(existing.gameObject);
+            return;
+        }
+
+        string prefabPath = "Assets/Samples/XR Interaction Toolkit/3.4.1/XR Device Simulator/XR Device Simulator.prefab";
+        var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+        if (prefab == null)
+        {
+            Debug.LogError($"XR Device Simulator prefab not found at {prefabPath}. Import the sample first via Window > Package Manager > XR Interaction Toolkit > Samples.");
+            return;
+        }
+
+        var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+        Undo.RegisterCreatedObjectUndo(instance, "Add XR Device Simulator");
+        instance.name = "XR Device Simulator";
+        Selection.activeGameObject = instance;
+        EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
+        Debug.Log("XR Device Simulator added to scene. Configure controls via the XR Device Simulator component.");
+    }
+
     /// <summary>Opens a folder picker to select a puzzle, sets PuzzleManager statics, and enters play mode.</summary>
     [MenuItem("Jigsaw/Test Puzzle Scene")]
     static void TestPuzzleScene()

@@ -144,14 +144,31 @@ public class PuzzleManager : MonoBehaviour
             pieceState.PieceId = pieceId;
             pieceState.CurrentState = PieceStateEnum.OnWall;
 
-            foreach (var mf in container.GetComponentsInChildren<MeshFilter>())
+            var bounds = new Bounds();
+            bool boundsInitialized = false;
+            foreach (var mr in container.GetComponentsInChildren<MeshRenderer>())
             {
-                if (mf.sharedMesh != null)
+                if (!boundsInitialized)
                 {
-                    var collider = mf.gameObject.AddComponent<MeshCollider>();
-                    collider.convex = true;
-                    collider.sharedMesh = mf.sharedMesh;
+                    bounds = mr.bounds;
+                    boundsInitialized = true;
                 }
+                else
+                {
+                    bounds.Encapsulate(mr.bounds);
+                }
+            }
+
+            if (boundsInitialized)
+            {
+                var box = container.AddComponent<BoxCollider>();
+                box.center = container.transform.InverseTransformPoint(bounds.center);
+                var localSize = container.transform.lossyScale;
+                box.size = new Vector3(
+                    bounds.size.x / localSize.x,
+                    bounds.size.y / localSize.y,
+                    bounds.size.z / localSize.z
+                );
             }
 
             pieceLookup[pieceId] = pieceState;

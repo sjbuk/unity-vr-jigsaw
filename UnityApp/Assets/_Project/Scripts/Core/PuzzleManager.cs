@@ -144,6 +144,19 @@ public class PuzzleManager : MonoBehaviour
             pieceState.PieceId = pieceId;
             pieceState.CurrentState = PieceStateEnum.OnWall;
 
+            if (checkpoint.piece_centroids != null && pieceId < checkpoint.piece_centroids.Length)
+            {
+                var c = checkpoint.piece_centroids[pieceId];
+                pieceState.LocalCentroid = new Vector3(c[0], c[1], c[2]);
+                Debug.Log(string.Format("[PuzzleManager] Piece {0} centroid set to ({1:F3}, {2:F3}, {3:F3})",
+                    pieceId, c[0], c[1], c[2]));
+            }
+            else
+            {
+                Debug.LogWarning(string.Format("[PuzzleManager] Piece {0} centroid NOT set (centroids={1}, id<len={2})",
+                    pieceId, checkpoint.piece_centroids != null, pieceId < (checkpoint.piece_centroids?.Length ?? 0)));
+            }
+
             var bounds = new Bounds();
             bool boundsInitialized = false;
             foreach (var mr in container.GetComponentsInChildren<MeshRenderer>())

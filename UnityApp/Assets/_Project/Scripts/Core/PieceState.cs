@@ -24,6 +24,7 @@ public class PieceState : MonoBehaviour
     public PieceStateEnum CurrentState;
     public int WallSlotIndex = -1;
     public int ClusterId;
+    public Vector3 LocalCentroid;
     public GameObject LeftHandController;
     public GameObject RightHandController;
 

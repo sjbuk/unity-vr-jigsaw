@@ -26,11 +26,11 @@ public class LaserPointer : MonoBehaviour
     public GameObject cursorIndicator;
 
     /// <summary>Maximum raycast distance for the laser.</summary>
-    public float maxDistance = 4f;
+    [SerializeField] public float maxDistance = 6f;
+    /// <summary>Pieces closer than this to the controller are ignored by the laser.</summary>
+    [SerializeField] public float minLaserDistance = 0.5f;
     /// <summary>Duration of the fly-to-hand animation when pulling a piece.</summary>
-    public float flyToHandDuration = 0.25f;
-    /// <summary>Distance in front of the controller the piece lands when pulled.</summary>
-    public float flyHoldDistance = 0.2f;
+    [SerializeField] public float flyToHandDuration = 0.25f;
     /// <summary>Layers the laser raycast can hit.</summary>
     public LayerMask layerMask = -1;
 
@@ -104,7 +104,10 @@ public class LaserPointer : MonoBehaviour
             toggleAction.performed += OnTogglePerformed;
 
         if (triggerAction != null)
+        {
             triggerAction.performed += OnTriggerPerformed;
+            triggerAction.canceled += OnTriggerCanceled;
+        }
 
         jigsawMap.Enable();
     }
@@ -124,7 +127,10 @@ public class LaserPointer : MonoBehaviour
         if (toggleAction != null)
             toggleAction.performed -= OnTogglePerformed;
         if (triggerAction != null)
+        {
             triggerAction.performed -= OnTriggerPerformed;
+            triggerAction.canceled -= OnTriggerCanceled;
+        }
     }
 
     void OnTogglePerformed(InputAction.CallbackContext ctx)
@@ -133,6 +139,7 @@ public class LaserPointer : MonoBehaviour
         OnToggleButton();
     }
     void OnTriggerPerformed(InputAction.CallbackContext ctx) => OnTriggerButton();
+    void OnTriggerCanceled(InputAction.CallbackContext ctx) => pieceHolder?.ReleasePiece();
 
     void Update()
     {
@@ -153,7 +160,8 @@ public class LaserPointer : MonoBehaviour
             lineRenderer.SetPosition(1, hit.point);
 
             PieceState piece = hit.collider.GetComponentInParent<PieceState>();
-            if (piece != null && piece.IsInteractable())
+            bool tooClose = Vector3.Distance(controllerTransform.position, hit.collider.transform.position) < minLaserDistance;
+            if (piece != null && piece.IsInteractable() && !tooClose)
             {
                 HighlightPiece(piece);
                 targetedPiece = piece;
@@ -180,20 +188,26 @@ public class LaserPointer : MonoBehaviour
         isActive = !isActive;
     }
 
-    /// <summary>Pulls the currently targeted piece toward the hand if it is interactable.</summary>
+    /// <summary>When laser is off, tries local grab. When laser is on, uses laser pointer pull.</summary>
     public void OnTriggerButton()
     {
-        if (targetedPiece != null && pieceHolder != null && !pieceHolder.IsHolding && !targetedPiece.IsFlying())
-        {
+        if (pieceHolder == null || pieceHolder.IsHolding) return;
+
+        if (!isActive && pieceHolder.TryLocalGrab()) return;
+
+        if (isActive && targetedPiece != null && !targetedPiece.IsFlying())
             PullPiece(targetedPiece);
-        }
     }
 
     /// <summary>Initiates the fly-to-hand animation for a piece and grabs it on arrival.</summary>
     /// <param name="piece">The piece to pull.</param>
     private void PullPiece(PieceState piece)
     {
-        Vector3 targetPos = pieceHolder.attachPoint.position + controllerTransform.forward * flyHoldDistance;
+        isActive = false;
+        pieceHolder.heldPiece = piece;
+
+        float zOffset = pieceHolder.GetPieceHoldLocalZOffset(piece);
+        Vector3 targetPos = pieceHolder.attachPoint.position + controllerTransform.forward * zOffset;
         piece.TransitionTo(PieceStateEnum.FlyingToHand);
         piece.FlyToPosition(targetPos, flyToHandDuration, () =>
         {

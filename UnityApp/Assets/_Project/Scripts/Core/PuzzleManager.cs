@@ -9,22 +9,17 @@ using UnityEngine;
 /// </summary>
 public class PuzzleManager : MonoBehaviour
 {
-    /// <summary>Determines whether to start a new game or resume a saved one.</summary>
     public enum LoadMode { NewGame, Resume }
 
-    /// <summary>Path to the folder containing the puzzle's checkpoint.json and GLB files.</summary>
     public static string PuzzleFolderPath;
-    /// <summary>How the puzzle should be loaded on start.</summary>
     public static LoadMode LoadOnStart = LoadMode.NewGame;
 
-    /// <summary>Reference to the WallGrid component for slot management.</summary>
     public WallGrid wallGrid;
-    /// <summary>Reference to the SnapSystem component for adjacency snapping.</summary>
     public SnapSystem snapSystem;
-    /// <summary>Reference to the SaveManager component for persistence.</summary>
     public SaveManager saveManager;
-    /// <summary>Reference to the CompletionFX component for victory effects.</summary>
     public CompletionFX completionFX;
+
+    public static Transform PuzzleRootTransform;
 
     private List<PieceState> allPieces;
     private Dictionary<int, PieceState> pieceLookup;
@@ -32,37 +27,44 @@ public class PuzzleManager : MonoBehaviour
 
     async void Start()
     {
-        if (string.IsNullOrEmpty(PuzzleFolderPath))
+        try
         {
-            string puzzlesPath;
-#if UNITY_ANDROID && !UNITY_EDITOR
-            puzzlesPath = Path.Combine(Application.persistentDataPath, "puzzles");
-#else
-            puzzlesPath = Path.Combine(Application.dataPath, "_Project", "Puzzels");
-#endif
-            if (Directory.Exists(puzzlesPath))
-            {
-                var dirs = Directory.GetDirectories(puzzlesPath);
-                if (dirs.Length > 0)
-                {
-                    PuzzleFolderPath = dirs[0];
-                    LoadOnStart = LoadMode.NewGame;
-                }
-            }
-
             if (string.IsNullOrEmpty(PuzzleFolderPath))
             {
-                Debug.LogError("PuzzleFolderPath not set and no puzzles found!");
-                return;
+                string puzzlesPath;
+#if UNITY_ANDROID && !UNITY_EDITOR
+                puzzlesPath = Path.Combine(Application.persistentDataPath, "puzzles");
+#else
+                puzzlesPath = Path.Combine(Application.dataPath, "_Project", "Puzzels");
+#endif
+                if (Directory.Exists(puzzlesPath))
+                {
+                    var dirs = Directory.GetDirectories(puzzlesPath);
+                    if (dirs.Length > 0)
+                    {
+                        PuzzleFolderPath = dirs[0];
+                        LoadOnStart = LoadMode.NewGame;
+                    }
+                }
+                if (string.IsNullOrEmpty(PuzzleFolderPath))
+                {
+                    Debug.LogError("PuzzleFolderPath not set and no puzzles found!");
+                    return;
+                }
             }
+            await LoadPuzzle();
         }
-
-        await LoadPuzzle();
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[PuzzleManager] Error during Start: {e.Message}\n{e.StackTrace}");
+        }
     }
 
-    /// <summary>Loads checkpoint.json, instantiates the GLB model, and initializes all subsystems.</summary>
     async Task LoadPuzzle()
     {
+        Debug.Log("[PuzzleManager] LoadPuzzle started.");
+        if (this == null) return;
+
         string checkpointPath = Path.Combine(PuzzleFolderPath, "checkpoint.json");
         if (!File.Exists(checkpointPath))
         {
@@ -72,19 +74,18 @@ public class PuzzleManager : MonoBehaviour
 
         string json = File.ReadAllText(checkpointPath);
         checkpoint = JsonUtility.FromJson<CheckpointData>(json);
+        if (checkpoint == null) { Debug.LogError("Failed to parse checkpoint.json"); return; }
 
-        if (checkpoint == null)
-        {
-            Debug.LogError("Failed to parse checkpoint.json");
-            return;
-        }
+        var jsonCentroids = ExtractCentroidsManually(json);
 
         int count = checkpoint.piece_count;
         allPieces = new List<PieceState>(count);
         pieceLookup = new Dictionary<int, PieceState>(count);
 
         string glbPath = Path.Combine(PuzzleFolderPath, "pieces.glb");
-        await LoadPuzzleGLB(glbPath);
+        await LoadPuzzleGLB(glbPath, jsonCentroids);
+        
+        if (this == null) return;
 
         float slotSpacing = ComputeSlotSpacing(allPieces);
         if (wallGrid != null)
@@ -104,29 +105,25 @@ public class PuzzleManager : MonoBehaviour
             ArrangeOnWall(allPieces, true);
         else
             ResumeFromSave();
+            
+        Debug.Log("[PuzzleManager] LoadPuzzle completed.");
     }
 
-    /// <summary>Loads the consolidated GLB file and creates PieceState GameObjects for each piece.</summary>
-    /// <param name="consolidatedPath">File path to the .glb file.</param>
-    async Task LoadPuzzleGLB(string consolidatedPath)
+    async Task LoadPuzzleGLB(string consolidatedPath, List<float[]> jsonCentroids)
     {
-        if (!File.Exists(consolidatedPath))
-        {
-            Debug.LogError($"GLB not found at {consolidatedPath}");
-            return;
-        }
+        if (!File.Exists(consolidatedPath)) { Debug.LogError($"GLB not found at {consolidatedPath}"); return; }
 
         var gltf = new GLTFast.GltfImport();
         bool success = await gltf.Load(consolidatedPath);
-
-        if (!success)
-        {
-            Debug.LogError("Failed to load GLB");
-            return;
-        }
+        if (this == null) return;
+        if (!success) { Debug.LogError("Failed to load GLB"); return; }
 
         var root = new GameObject("PuzzleRoot");
-        await gltf.InstantiateSceneAsync(root.transform);
+        PuzzleRootTransform = root.transform;
+        
+        try { await gltf.InstantiateSceneAsync(root.transform); }
+        catch (System.Exception) { if (this == null) return; }
+        if (this == null) return;
 
         var pieceNodes = new Dictionary<int, List<Transform>>();
         CollectPieceNodes(root.transform, pieceNodes);
@@ -137,50 +134,32 @@ public class PuzzleManager : MonoBehaviour
             var container = new GameObject($"Piece_{pieceId:D4}");
             container.transform.SetParent(root.transform);
 
+            // Reverting to simple origin-based parenting as per last working state
             foreach (var child in kvp.Value)
                 child.SetParent(container.transform);
 
             var pieceState = container.AddComponent<PieceState>();
             pieceState.PieceId = pieceId;
             pieceState.CurrentState = PieceStateEnum.OnWall;
-
-            if (checkpoint.piece_centroids != null && pieceId < checkpoint.piece_centroids.Length)
-            {
-                var c = checkpoint.piece_centroids[pieceId];
-                pieceState.LocalCentroid = new Vector3(c[0], c[1], c[2]);
-                Debug.Log(string.Format("[PuzzleManager] Piece {0} centroid set to ({1:F3}, {2:F3}, {3:F3})",
-                    pieceId, c[0], c[1], c[2]));
-            }
-            else
-            {
-                Debug.LogWarning(string.Format("[PuzzleManager] Piece {0} centroid NOT set (centroids={1}, id<len={2})",
-                    pieceId, checkpoint.piece_centroids != null, pieceId < (checkpoint.piece_centroids?.Length ?? 0)));
-            }
+            pieceState.LocalCentroid = Vector3.zero; // Reverting to zero as per working state
 
             var bounds = new Bounds();
             bool boundsInitialized = false;
             foreach (var mr in container.GetComponentsInChildren<MeshRenderer>())
             {
-                if (!boundsInitialized)
-                {
-                    bounds = mr.bounds;
-                    boundsInitialized = true;
-                }
-                else
-                {
-                    bounds.Encapsulate(mr.bounds);
-                }
+                if (!boundsInitialized) { bounds = mr.bounds; boundsInitialized = true; }
+                else bounds.Encapsulate(mr.bounds);
             }
 
             if (boundsInitialized)
             {
                 var box = container.AddComponent<BoxCollider>();
                 box.center = container.transform.InverseTransformPoint(bounds.center);
-                var localSize = container.transform.lossyScale;
+                var localScale = container.transform.lossyScale;
                 box.size = new Vector3(
-                    bounds.size.x / localSize.x,
-                    bounds.size.y / localSize.y,
-                    bounds.size.z / localSize.z
+                    bounds.size.x / Mathf.Max(localScale.x, 0.001f),
+                    bounds.size.y / Mathf.Max(localScale.y, 0.001f),
+                    bounds.size.z / Mathf.Max(localScale.z, 0.001f)
                 );
             }
 
@@ -195,12 +174,12 @@ public class PuzzleManager : MonoBehaviour
                 dead.Add(child.gameObject);
         }
         foreach (var go in dead)
-            Destroy(go);
+        {
+            if (Application.isPlaying) Destroy(go);
+            else DestroyImmediate(go);
+        }
     }
 
-    /// <summary>Recursively collects piece transforms from the GLB scene hierarchy, grouped by piece ID.</summary>
-    /// <param name="parent">The transform to search under.</param>
-    /// <param name="pieceNodes">Dictionary mapping piece IDs to their list of transforms.</param>
     void CollectPieceNodes(Transform parent, Dictionary<int, List<Transform>> pieceNodes)
     {
         foreach (Transform child in parent)
@@ -208,21 +187,13 @@ public class PuzzleManager : MonoBehaviour
             int id = ParsePieceId(child.name);
             if (id >= 0)
             {
-                if (!pieceNodes.TryGetValue(id, out var list))
-                {
-                    list = new List<Transform>();
-                    pieceNodes[id] = list;
-                }
+                if (!pieceNodes.TryGetValue(id, out var list)) { list = new List<Transform>(); pieceNodes[id] = list; }
                 list.Add(child);
             }
-            else
-            {
-                CollectPieceNodes(child, pieceNodes);
-            }
+            else CollectPieceNodes(child, pieceNodes);
         }
     }
 
-    /// <summary>Computes the slot spacing based on the largest piece's combined world-space width/height with 20% margin.</summary>
     float ComputeSlotSpacing(List<PieceState> pieces)
     {
         float maxSize = 0f;
@@ -233,15 +204,8 @@ public class PuzzleManager : MonoBehaviour
             bool initialized = false;
             foreach (var r in renderers)
             {
-                if (!initialized)
-                {
-                    combined = r.bounds;
-                    initialized = true;
-                }
-                else
-                {
-                    combined.Encapsulate(r.bounds);
-                }
+                if (!initialized) { combined = r.bounds; initialized = true; }
+                else combined.Encapsulate(r.bounds);
             }
             if (!initialized) continue;
             float pieceSize = Mathf.Max(combined.size.x, combined.size.y);
@@ -250,28 +214,52 @@ public class PuzzleManager : MonoBehaviour
         return maxSize * 1.2f;
     }
 
-    /// <summary>Extracts the piece ID from a node name (e.g. "Piece_0003" returns 3).</summary>
-    /// <param name="name">The node name to parse.</param>
-    /// <returns>The piece ID, or -1 if parsing fails.</returns>
     private int ParsePieceId(string name)
     {
         var parts = name.Split('_');
-        if (parts.Length >= 2 && int.TryParse(parts[1], out int id))
-            return id;
+        if (parts.Length >= 2 && int.TryParse(parts[1], out int id)) return id;
         return -1;
     }
 
-    /// <summary>Places all pieces onto the wall grid, optionally randomizing their slot assignment.</summary>
-    /// <param name="pieces">List of piece states to arrange.</param>
-    /// <param name="randomize">If true, slots are shuffled using the checkpoint seed.</param>
+    private List<float[]> ExtractCentroidsManually(string json)
+    {
+        var centroids = new List<float[]>();
+        try
+        {
+            int startIdx = json.IndexOf("\"piece_centroids\"");
+            if (startIdx == -1) return centroids;
+            int arrayStart = json.IndexOf("[", startIdx);
+            if (arrayStart == -1) return centroids;
+            int arrayEnd = -1; int balance = 0;
+            for (int i = arrayStart; i < json.Length; i++)
+            {
+                if (json[i] == '[') balance++;
+                else if (json[i] == ']') balance--;
+                if (balance == 0) { arrayEnd = i; break; }
+            }
+            if (arrayEnd == -1) return centroids;
+            string subJson = json.Substring(arrayStart, arrayEnd - arrayStart + 1);
+            var matches = System.Text.RegularExpressions.Regex.Matches(subJson, @"\[\s*([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\s*,\s*([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\s*,\s*([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\s*\]");
+            foreach (System.Text.RegularExpressions.Match match in matches)
+            {
+                if (match.Groups.Count == 4)
+                {
+                    if (float.TryParse(match.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float x) &&
+                        float.TryParse(match.Groups[2].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float y) &&
+                        float.TryParse(match.Groups[3].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out float z))
+                        centroids.Add(new float[] { x, y, z });
+                }
+            }
+        }
+        catch (System.Exception) { }
+        return centroids;
+    }
+
     void ArrangeOnWall(List<PieceState> pieces, bool randomize)
     {
         if (wallGrid == null) return;
-
         int[] slotIndices = new int[pieces.Count];
-        for (int i = 0; i < slotIndices.Length; i++)
-            slotIndices[i] = i;
-
+        for (int i = 0; i < slotIndices.Length; i++) slotIndices[i] = i;
         if (randomize)
         {
             System.Random rng = new System.Random(checkpoint?.seed ?? 42);
@@ -281,77 +269,44 @@ public class PuzzleManager : MonoBehaviour
                 (slotIndices[i], slotIndices[j]) = (slotIndices[j], slotIndices[i]);
             }
         }
-
         for (int i = 0; i < pieces.Count; i++)
         {
             int slotIdx = slotIndices[i];
             var piece = pieces[i];
-
-            Vector3 pos = wallGrid.SlotPositions[slotIdx];
-            Quaternion rot = wallGrid.SlotRotations[slotIdx];
-
-            piece.transform.position = pos;
-            piece.transform.rotation = rot;
+            piece.transform.position = wallGrid.SlotPositions[slotIdx];
+            piece.transform.rotation = wallGrid.SlotRotations[slotIdx];
             piece.WallSlotIndex = slotIdx;
             piece.CurrentState = PieceStateEnum.OnWall;
-
             wallGrid.OccupySlot(slotIdx, piece.PieceId);
         }
     }
 
-    /// <summary>Restores piece positions, states, and cluster data from a saved game.</summary>
     void ResumeFromSave()
     {
         var saveData = saveManager?.Load();
-        if (saveData == null)
-        {
-            ArrangeOnWall(allPieces, true);
-            return;
-        }
-
+        if (saveData == null) { ArrangeOnWall(allPieces, true); return; }
         foreach (var entry in saveData.pieceStates)
         {
-            if (!pieceLookup.TryGetValue(entry.pieceId, out var piece))
-                continue;
-
+            if (!pieceLookup.TryGetValue(entry.pieceId, out var piece)) continue;
             piece.WallSlotIndex = entry.wallSlot;
             piece.ClusterId = entry.clusterId;
-
             if (entry.position != null && entry.position.Length == 3)
                 piece.transform.position = new Vector3(entry.position[0], entry.position[1], entry.position[2]);
-
             if (entry.rotation != null && entry.rotation.Length == 4)
                 piece.transform.rotation = new Quaternion(entry.rotation[0], entry.rotation[1], entry.rotation[2], entry.rotation[3]);
-
             switch (entry.state)
             {
                 case "on_wall":
                     piece.CurrentState = PieceStateEnum.OnWall;
-                    if (entry.wallSlot >= 0)
-                        wallGrid?.OccupySlot(entry.wallSlot, entry.pieceId);
+                    if (entry.wallSlot >= 0) wallGrid?.OccupySlot(entry.wallSlot, entry.pieceId);
                     break;
-                case "floating":
-                    piece.CurrentState = PieceStateEnum.Floating;
-                    break;
-                default:
-                    piece.CurrentState = PieceStateEnum.OnWall;
-                    break;
+                case "floating": piece.CurrentState = PieceStateEnum.Floating; break;
+                default: piece.CurrentState = PieceStateEnum.OnWall; break;
             }
         }
-
-        if (saveData.clusters != null && snapSystem != null)
-        {
-            snapSystem.RestoreClusters(saveData.clusters);
-        }
+        if (saveData.clusters != null && snapSystem != null) snapSystem.RestoreClusters(saveData.clusters);
     }
 
-    void OnApplicationQuit()
-    {
-        saveManager?.Save();
-    }
-
-    void OnApplicationPause(bool pauseStatus)
-    {
-        if (pauseStatus) saveManager?.Save();
-    }
+    void OnApplicationQuit() { saveManager?.Save(); }
+    void OnApplicationPause(bool pauseStatus) { if (pauseStatus) saveManager?.Save(); }
 }

@@ -64,7 +64,13 @@ public class PieceState : MonoBehaviour
     /// <summary>Detaches the piece from the controller, leaving it floating.</summary>
     public void DetachFromHand()
     {
-        transform.SetParent(null);
+        Transform root = PuzzleManager.PuzzleRootTransform;
+        if (root == null)
+        {
+            var go = GameObject.Find("PuzzleRoot");
+            if (go != null) root = go.transform;
+        }
+        transform.SetParent(root);
         TransitionTo(PieceStateEnum.Floating);
     }
 

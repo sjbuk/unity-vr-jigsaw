@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.XR.Interaction.Toolkit;
@@ -5,6 +6,7 @@ using UnityEngine.XR.Interaction.Toolkit;
 /// <summary>
 /// Manages grabbing, holding, and releasing puzzle pieces on a per-controller basis.
 /// Handles grip-based holding and return-to-wall functionality.
+/// Input binding is managed centrally by JigsawInputBinder.
 /// </summary>
 public class PieceHolder : MonoBehaviour
 {
@@ -16,6 +18,8 @@ public class PieceHolder : MonoBehaviour
     public LaserPointer laserPointer;
     /// <summary>Reference to the wall grid for returning pieces.</summary>
     public WallGrid wallGrid;
+    /// <summary>Reference to the snap system for cluster management.</summary>
+    public SnapSystem snapSystem;
     /// <summary>Minimum distance from controller to the closest face of the held piece.</summary>
     public float faceGrabDistance = 0.1f;
     /// <summary>Radius for detecting nearby pieces during local grab.</summary>
@@ -30,95 +34,11 @@ public class PieceHolder : MonoBehaviour
     /// <summary>Whether this holder is currently holding a piece.</summary>
     public bool IsHolding => heldPiece != null;
 
-    private InputActionAsset inputActions;
-    private InputActionMap jigsawMap;
-    private InputAction gripAction;
-    private InputAction returnAction;
-
-    void Awake()
+    void Start()
     {
-        string prefix = gameObject.name.Contains("Left") ? "Left" : "Right";
-
-        var loaded = TryLoadInputActions();
-        Debug.Log($"[PieceHolder] {gameObject.name} Awake: prefix={prefix}, actionsLoaded={loaded}");
-        if (loaded)
-            BindInput(prefix);
+        if (snapSystem == null)
+            snapSystem = FindObjectOfType<SnapSystem>();
     }
-
-    /// <summary>Attempts to load the XRI_Jigsaw input actions from Resources.</summary>
-    /// <returns>True if the action map was found.</returns>
-    bool TryLoadInputActions()
-    {
-        var jsonAsset = Resources.Load<TextAsset>("XRI_Jigsaw");
-        if (jsonAsset == null)
-        {
-            Debug.LogError("[PieceHolder] XRI_Jigsaw.json not found in Resources!");
-            return false;
-        }
-
-        try
-        {
-            inputActions = InputActionAsset.FromJson(jsonAsset.text);
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogError($"[PieceHolder] Failed to parse XRI_Jigsaw.json: {e.Message}");
-            return false;
-        }
-
-        jigsawMap = inputActions.FindActionMap("Jigsaw");
-        if (jigsawMap == null)
-        {
-            Debug.LogError("[PieceHolder] Action map 'Jigsaw' not found!");
-            return false;
-        }
-
-        return true;
-    }
-
-    /// <summary>Binds grip and return input actions to their handlers.</summary>
-    /// <param name="prefix">"Left" or "Right" to identify the correct action bindings.</param>
-    void BindInput(string prefix)
-    {
-        gripAction = jigsawMap.FindAction(prefix + "Grip");
-        returnAction = jigsawMap.FindAction(prefix + "Return");
-
-        if (gripAction != null)
-        {
-            gripAction.started += OnGripStarted;
-            gripAction.canceled += OnGripCanceled;
-        }
-
-        if (returnAction != null)
-            returnAction.performed += OnReturnPerformed;
-
-        jigsawMap.Enable();
-    }
-
-    void OnEnable()
-    {
-        jigsawMap?.Enable();
-    }
-
-    void OnDisable()
-    {
-        jigsawMap?.Disable();
-    }
-
-    void OnDestroy()
-    {
-        if (gripAction != null)
-        {
-            gripAction.started -= OnGripStarted;
-            gripAction.canceled -= OnGripCanceled;
-        }
-        if (returnAction != null)
-            returnAction.performed -= OnReturnPerformed;
-    }
-
-    void OnGripStarted(InputAction.CallbackContext ctx) { }
-    void OnGripCanceled(InputAction.CallbackContext ctx) => ReleasePiece();
-    void OnReturnPerformed(InputAction.CallbackContext ctx) => ReturnPieceToWall();
 
     /// <summary>Grabs a piece, attaches it to the holder, and deactivates the laser.</summary>
     /// <param name="piece">The piece to grab.</param>
@@ -128,20 +48,43 @@ public class PieceHolder : MonoBehaviour
         if (piece == null) return;
         if (IsHolding && heldPiece != piece) return;
 
-        if (wallGrid != null && piece.WallSlotIndex >= 0)
-            wallGrid.VacateSlot(piece.WallSlotIndex);
-
         heldPiece = piece;
-        piece.TransitionTo(PieceStateEnum.InHand);
+
+        var cluster = (snapSystem != null) ? snapSystem.GetClusterPieceStates(piece.ClusterId) : new List<PieceState> { piece };
+
+        foreach (var p in cluster)
+        {
+            if (wallGrid != null && p.WallSlotIndex >= 0)
+                wallGrid.VacateSlot(p.WallSlotIndex);
+            
+            p.TransitionTo(PieceStateEnum.InHand);
+        }
 
         if (keepWorldPosition)
         {
-            piece.transform.SetParent(attachPoint, worldPositionStays: true);
+            foreach (var p in cluster)
+                p.transform.SetParent(attachPoint, worldPositionStays: true);
         }
         else
         {
+            // To maintain cluster integrity while aligning the primary piece to the hand:
+            // 1. Parent all other cluster members to the primary piece temporarily.
+            foreach (var p in cluster)
+            {
+                if (p == piece) continue;
+                p.transform.SetParent(piece.transform, worldPositionStays: true);
+            }
+
+            // 2. Attach the primary piece to the hand (this changes its rotation/position).
             float zOffset = GetPieceHoldLocalZOffset(piece);
             piece.AttachToHand(gameObject, attachPoint, new Vector3(0, 0, zOffset));
+
+            // 3. Move other cluster members back to being siblings of the primary piece under attachPoint.
+            foreach (var p in cluster)
+            {
+                if (p == piece) continue;
+                p.transform.SetParent(attachPoint, worldPositionStays: true);
+            }
         }
 
         if (laserPointer != null)
@@ -194,7 +137,11 @@ public class PieceHolder : MonoBehaviour
     {
         if (!IsHolding) return;
 
-        heldPiece.DetachFromHand();
+        var cluster = (snapSystem != null) ? snapSystem.GetClusterPieceStates(heldPiece.ClusterId) : new List<PieceState> { heldPiece };
+        foreach (var p in cluster)
+        {
+            p.DetachFromHand();
+        }
         heldPiece = null;
     }
 
@@ -209,13 +156,22 @@ public class PieceHolder : MonoBehaviour
         Vector3 targetPos = wallGrid.SlotPositions[nearestSlot];
         Quaternion targetRot = wallGrid.SlotRotations[nearestSlot];
 
+        var cluster = (snapSystem != null) ? snapSystem.GetClusterPieceStates(heldPiece.ClusterId) : new List<PieceState> { heldPiece };
+
         heldPiece.TransitionTo(PieceStateEnum.FlyingToWall);
         heldPiece.FlyToPosition(targetPos, flyToWallDuration, () =>
         {
-            heldPiece.transform.rotation = targetRot;
-            heldPiece.TransitionTo(PieceStateEnum.OnWall);
-            heldPiece.WallSlotIndex = nearestSlot;
-            wallGrid.OccupySlot(nearestSlot, heldPiece.PieceId);
+            foreach (var p in cluster)
+            {
+                p.DetachFromHand();
+                if (p == heldPiece)
+                {
+                    p.transform.rotation = targetRot;
+                    p.TransitionTo(PieceStateEnum.OnWall);
+                    p.WallSlotIndex = nearestSlot;
+                    wallGrid.OccupySlot(nearestSlot, p.PieceId);
+                }
+            }
             heldPiece = null;
         });
     }

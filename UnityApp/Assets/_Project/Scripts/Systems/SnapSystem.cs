@@ -247,18 +247,14 @@ public class SnapSystem : MonoBehaviour
         if (!TryGetSnapInfo(pieceA, pieceB, out float err, out float rawDist, out float rotDelta))
             return false;
 
-        Debug.Log($"[Snap] TrySnap({pieceA},{pieceB}) err={err:F4}m raw={rawDist:F4}m rot={rotDelta:F1}deg radius={snapRadius:F4}m");
-
         if (err >= snapRadius)
         {
-            Debug.Log($"[Snap]   FAIL: err >= snapRadius");
             return false;
         }
 
         float maxRotationSnapAngle = 20f;
         if (rotDelta > maxRotationSnapAngle)
         {
-            Debug.Log($"[Snap]   FAIL: rotDelta > maxAngle");
             return false;
         }
 
@@ -293,6 +289,11 @@ public class SnapSystem : MonoBehaviour
         AlignClusterRotation(pieceA, pieceB);
         MergeClusters(pieceA, pieceB);
 
+        // Ensure that if any piece in the new cluster is being held, the whole cluster is parented to that hand.
+        int newClusterId = GetClusterId(pieceA);
+        UpdateHolderParenting(leftHolder, newClusterId);
+        UpdateHolderParenting(rightHolder, newClusterId);
+
         if (audioManager != null)
             audioManager.PlaySnapSound(pieceA);
 
@@ -304,8 +305,8 @@ public class SnapSystem : MonoBehaviour
             Instantiate(snapParticles, snapPos, Quaternion.identity);
         }
 
-        HapticPulse(leftHolder.controller, 0.1f, 0.5f);
-        HapticPulse(rightHolder.controller, 0.1f, 0.5f);
+        if (leftHolder != null) HapticPulse(leftHolder.controller, 0.1f, 0.5f);
+        if (rightHolder != null) HapticPulse(rightHolder.controller, 0.1f, 0.5f);
 
         if (SaveManager.Instance != null)
             SaveManager.Instance.Save();
@@ -314,6 +315,23 @@ public class SnapSystem : MonoBehaviour
         {
             if (CompletionFX.Instance != null)
                 CompletionFX.Instance.Trigger();
+        }
+    }
+
+    /// <summary>Updates the parenting of all pieces in a cluster if the holder is holding one of them.</summary>
+    private void UpdateHolderParenting(PieceHolder holder, int clusterId)
+    {
+        if (holder != null && holder.IsHolding && holder.heldPiece.ClusterId == clusterId)
+        {
+            var states = GetClusterPieceStates(clusterId);
+            foreach (var state in states)
+            {
+                if (state.transform.parent != holder.attachPoint && holder.attachPoint != null)
+                {
+                    state.transform.SetParent(holder.attachPoint, worldPositionStays: true);
+                    state.TransitionTo(PieceStateEnum.InHand);
+                }
+            }
         }
     }
 
@@ -345,6 +363,9 @@ public class SnapSystem : MonoBehaviour
     /// <summary>Returns the cluster dictionary for save/restore purposes.</summary>
     public Dictionary<int, HashSet<int>> GetClusters() => clusters;
 
+    /// <summary>Returns the piece registry for looking up piece states by ID.</summary>
+    public Dictionary<int, PieceState> GetPieceRegistry() => pieceRegistry;
+
     /// <summary>Gets all members of the cluster a piece belongs to.</summary>
     public HashSet<int> GetClusterMembers(PieceState piece)
     {
@@ -352,6 +373,23 @@ public class SnapSystem : MonoBehaviour
         if (clusters.TryGetValue(piece.ClusterId, out var members))
             return members;
         return null;
+    }
+
+    /// <summary>Gets all PieceState components belonging to a specific cluster.</summary>
+    /// <param name="clusterId">The ID of the cluster.</param>
+    /// <returns>A list of PieceState components in that cluster.</returns>
+    public List<PieceState> GetClusterPieceStates(int clusterId)
+    {
+        var states = new List<PieceState>();
+        if (clusters != null && clusters.TryGetValue(clusterId, out var members))
+        {
+            foreach (int id in members)
+            {
+                if (pieceRegistry != null && pieceRegistry.TryGetValue(id, out var state))
+                    states.Add(state);
+            }
+        }
+        return states;
     }
 
     /// <summary>Merges two clusters into one (cluster B is absorbed into cluster A).</summary>

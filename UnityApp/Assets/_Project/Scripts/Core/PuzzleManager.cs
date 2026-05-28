@@ -141,7 +141,16 @@ public class PuzzleManager : MonoBehaviour
             var pieceState = container.AddComponent<PieceState>();
             pieceState.PieceId = pieceId;
             pieceState.CurrentState = PieceStateEnum.OnWall;
-            pieceState.LocalCentroid = Vector3.zero; // Reverting to zero as per working state
+
+            if (pieceId >= 0 && pieceId < jsonCentroids.Count)
+            {
+                var c = jsonCentroids[pieceId];
+                pieceState.LocalCentroid = new Vector3(c[0], c[1], c[2]);
+            }
+            else
+            {
+                pieceState.LocalCentroid = Vector3.zero;
+            }
 
             var bounds = new Bounds();
             bool boundsInitialized = false;

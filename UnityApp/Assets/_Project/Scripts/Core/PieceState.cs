@@ -58,7 +58,6 @@ public class PieceState : MonoBehaviour
         TransitionTo(PieceStateEnum.InHand);
         transform.SetParent(attachPoint);
         transform.localPosition = localOffset;
-        transform.localRotation = Quaternion.identity;
     }
 
     /// <summary>Detaches the piece from the controller, leaving it floating.</summary>

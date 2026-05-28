@@ -1,3 +1,5 @@
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.XR.Interaction.Toolkit;
@@ -39,8 +41,7 @@ public class LaserPointer : MonoBehaviour
 
     private PieceState targetedPiece;
     private Material cachedHighlightMat;
-    private Material originalMaterial;
-    private MeshRenderer highlightedRenderer;
+    private readonly List<(MeshRenderer renderer, Material original)> highlightedRenderers = new List<(MeshRenderer, Material)>();
 
     private InputActionAsset inputActions;
     private InputActionMap jigsawMap;
@@ -199,52 +200,110 @@ public class LaserPointer : MonoBehaviour
             PullPiece(targetedPiece);
     }
 
-    /// <summary>Initiates the fly-to-hand animation for a piece and grabs it on arrival.</summary>
-    /// <param name="piece">The piece to pull.</param>
+    /// <summary>Initiates the fly-to-hand animation for a piece (and its cluster) and grabs on arrival.</summary>
     private void PullPiece(PieceState piece)
     {
         isActive = false;
+        ClearHighlight();
         pieceHolder.heldPiece = piece;
+
+        var cluster = (pieceHolder.snapSystem != null)
+            ? pieceHolder.snapSystem.GetClusterPieceStates(piece.ClusterId)
+            : new List<PieceState> { piece };
 
         float zOffset = pieceHolder.GetPieceHoldLocalZOffset(piece);
         Vector3 targetPos = pieceHolder.attachPoint.position + controllerTransform.forward * zOffset;
-        piece.TransitionTo(PieceStateEnum.FlyingToHand);
-        piece.FlyToPosition(targetPos, flyToHandDuration, () =>
+        Vector3 delta = targetPos - piece.transform.position;
+
+        foreach (var p in cluster)
+            p.TransitionTo(PieceStateEnum.FlyingToHand);
+
+        StartCoroutine(FlyClusterRoutine(cluster, delta, () =>
         {
             if (pieceHolder != null)
                 pieceHolder.GrabPiece(piece);
-        });
+        }));
     }
 
-    /// <summary>Applies a highlight material to the targeted piece's renderer.</summary>
-    /// <param name="piece">The piece to highlight.</param>
+    private IEnumerator FlyClusterRoutine(List<PieceState> cluster, Vector3 delta, System.Action onArrive)
+    {
+        var startPositions = new Dictionary<PieceState, Vector3>();
+        foreach (var p in cluster)
+            startPositions[p] = p.transform.position;
+
+        float elapsed = 0f;
+        while (elapsed < flyToHandDuration)
+        {
+            float t = elapsed / flyToHandDuration;
+            t = t * t * (3f - 2f * t);
+            Vector3 frameDelta = delta * t;
+            foreach (var p in cluster)
+            {
+                if (p != null)
+                    p.transform.position = startPositions[p] + frameDelta;
+            }
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        foreach (var p in cluster)
+        {
+            if (p != null)
+                p.transform.position = startPositions[p] + delta;
+        }
+        onArrive?.Invoke();
+    }
+
+    /// <summary>Applies a highlight material to all pieces in the targeted piece's cluster.</summary>
     private void HighlightPiece(PieceState piece)
     {
-        var renderer = piece.GetComponentInChildren<MeshRenderer>();
-        if (renderer == null) return;
+        if (targetedPiece == piece && highlightedRenderers.Count > 0) return;
 
-        if (highlightedRenderer != renderer)
+        var cluster = (pieceHolder.snapSystem != null)
+            ? pieceHolder.snapSystem.GetClusterPieceStates(piece.ClusterId)
+            : new List<PieceState> { piece };
+
+        bool sameCluster = true;
+        if (highlightedRenderers.Count != cluster.Count) sameCluster = false;
+        else
         {
-            ClearHighlight();
-            highlightedRenderer = renderer;
-            originalMaterial = renderer.material;
+            for (int i = 0; i < cluster.Count; i++)
+            {
+                var r = cluster[i].GetComponentInChildren<MeshRenderer>();
+                if (i >= highlightedRenderers.Count || highlightedRenderers[i].renderer != r)
+                { sameCluster = false; break; }
+            }
+        }
 
-            if (cachedHighlightMat == null)
-                cachedHighlightMat = Resources.Load<Material>("PieceHighlight");
-            if (cachedHighlightMat != null)
+        if (sameCluster) return;
+
+        ClearHighlight();
+        targetedPiece = piece;
+
+        if (cachedHighlightMat == null)
+            cachedHighlightMat = Resources.Load<Material>("PieceHighlight");
+        if (cachedHighlightMat == null) return;
+
+        foreach (var p in cluster)
+        {
+            var renderer = p.GetComponentInChildren<MeshRenderer>();
+            if (renderer != null)
+            {
+                highlightedRenderers.Add((renderer, renderer.material));
                 renderer.material = cachedHighlightMat;
+            }
         }
     }
 
-    /// <summary>Restores the original material on the previously highlighted piece.</summary>
+    /// <summary>Restores the original materials on all previously highlighted pieces.</summary>
     private void ClearHighlight()
     {
-        if (highlightedRenderer != null && originalMaterial != null)
+        foreach (var (renderer, original) in highlightedRenderers)
         {
-            highlightedRenderer.material = originalMaterial;
-            highlightedRenderer = null;
-            originalMaterial = null;
+            if (renderer != null)
+                renderer.material = original;
         }
+        highlightedRenderers.Clear();
         targetedPiece = null;
     }
 }

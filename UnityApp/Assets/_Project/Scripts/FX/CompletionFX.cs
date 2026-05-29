@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 using UnityEngine.XR.Interaction.Toolkit;
 
 /// <summary>
@@ -25,6 +26,13 @@ public class CompletionFX : MonoBehaviour
     {
         if (Instance == null) Instance = this;
         else Destroy(gameObject);
+
+        if (returnToMenuButton != null)
+        {
+            var btn = returnToMenuButton.GetComponent<Button>();
+            if (btn != null)
+                btn.onClick.AddListener(ReturnToMenu);
+        }
     }
 
     /// <summary>Triggers all completion effects: fireworks, audio, haptics, and menu button.</summary>

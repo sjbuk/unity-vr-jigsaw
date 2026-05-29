@@ -131,16 +131,16 @@ def export_results(
     print("[Phase 4] Generating preview thumbnail …", file=sys.stderr, flush=True)
     preview_path = os.path.join(out, "preview.png")
     preview_ok = generate_preview(
-        final_pieces,
+        mesh,
         preview_path,
-        resolution=config.preview_resolution,
+        width=config.preview_resolution,
+        height=config.preview_height,
     )
     if preview_ok:
         print(f"[Phase 4]   preview written", file=sys.stderr, flush=True)
     else:
         print(
-            "[Phase 4]   WARNING: placeholder preview generated "
-            "(install pyrender for real renders)",
+            "[Phase 4]   preview written (Pillow software rasterizer)",
             file=sys.stderr,
             flush=True,
         )

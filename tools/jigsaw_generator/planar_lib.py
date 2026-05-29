@@ -15,7 +15,8 @@ class Config:
     seed: int | None = None
     reassign_orphans: bool = True
     adjacency_threshold: float = 0.01
-    preview_resolution: int = 512
+    preview_resolution: int = 1024
+    preview_height: int = 512
 
     def validate(self) -> None:
         if self.pieces < 2:
@@ -36,6 +37,7 @@ class Config:
             reassign_orphans=not args.no_reassign_orphans,
             adjacency_threshold=args.adjacency_threshold,
             preview_resolution=args.preview_resolution,
+            preview_height=args.preview_height,
         )
 
 
@@ -53,6 +55,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="Skip orphan fragment reassignment (default: on)")
     parser.add_argument("--adjacency-threshold", type=float, default=0.01,
                         help="AABB expansion for neighbour detection (default: 0.01)")
-    parser.add_argument("--preview-resolution", type=int, default=512,
-                        help="Preview thumbnail resolution in pixels (default: 512)")
+    parser.add_argument("--preview-resolution", type=int, default=1024,
+                        help="Preview thumbnail width in pixels (default: 1024)")
+    parser.add_argument("--preview-height", type=int, default=512,
+                        help="Preview thumbnail height in pixels (default: 512)")
     return parser

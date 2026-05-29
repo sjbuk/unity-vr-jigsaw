@@ -1,5 +1,15 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "funplay-unity": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8765/mcp",
+      "enabled": true
+    }
+  },
+  "skills": {
+    "paths": [".opencode/skills"]
+  },
   "command": {
     "tauri": {
       "description": "Work exclusively on the Tauri desktop app (Svelte frontend + Rust backend) in the tauri-app/ folder.",

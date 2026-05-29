@@ -97,6 +97,22 @@ public class WallGrid : MonoBehaviour
         return nearest;
     }
 
+    /// <summary>Computes the rotation for a slot so that the piece faces the given player position.</summary>
+    /// <param name="slotIndex">Index of the slot.</param>
+    /// <param name="playerPosition">World position of the player's head/camera.</param>
+    /// <returns>Rotation that makes the piece face the player.</returns>
+    public Quaternion GetSlotRotation(int slotIndex, Vector3 playerPosition)
+    {
+        if (slotIndex < 0 || slotIndex >= slotCount) return Quaternion.identity;
+
+        Vector3 worldSlotPos = transform.TransformPoint(slotPositions[slotIndex]);
+        Vector3 toPlayer = playerPosition - worldSlotPos;
+        toPlayer.y = 0f;
+        if (toPlayer.sqrMagnitude < 0.0001f)
+            return Quaternion.identity;
+        return Quaternion.LookRotation(toPlayer.normalized, Vector3.up);
+    }
+
     /// <summary>Marks a slot as occupied by a specific piece.</summary>
     /// <param name="slotIndex">Index of the slot to occupy.</param>
     /// <param name="pieceId">ID of the piece occupying the slot.</param>

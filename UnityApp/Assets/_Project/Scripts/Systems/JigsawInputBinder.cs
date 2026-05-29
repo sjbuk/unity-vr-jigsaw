@@ -77,12 +77,12 @@ public class JigsawInputBinder : MonoBehaviour
     void BindActions()
     {
         Bind(jigsawMap.FindAction("LeftLaserToggle"),  OnLeftLaserToggle);
-        Bind(jigsawMap.FindAction("LeftTrigger"),      OnLeftTrigger);
+        Bind(jigsawMap.FindAction("LeftTrigger"),      OnLeftTrigger,      OnLeftTriggerReleased);
         Bind(jigsawMap.FindAction("LeftReturn"),        OnLeftReturn);
         Bind(jigsawMap.FindAction("LeftGrip"),          OnLeftGripPressed, OnLeftGripReleased);
 
         Bind(jigsawMap.FindAction("RightLaserToggle"), OnRightLaserToggle);
-        Bind(jigsawMap.FindAction("RightTrigger"),      OnRightTrigger);
+        Bind(jigsawMap.FindAction("RightTrigger"),      OnRightTrigger,     OnRightTriggerReleased);
         Bind(jigsawMap.FindAction("RightReturn"),       OnRightReturn);
         Bind(jigsawMap.FindAction("RightGrip"),         OnRightGripPressed, OnRightGripReleased);
     }
@@ -126,12 +126,14 @@ public class JigsawInputBinder : MonoBehaviour
 
     void OnLeftLaserToggle(InputAction.CallbackContext ctx)  { if (leftLaser != null) leftLaser.OnToggleButton(); }
     void OnLeftTrigger(InputAction.CallbackContext ctx)      { if (leftLaser != null) leftLaser.OnTriggerButton(); }
+    void OnLeftTriggerReleased(InputAction.CallbackContext ctx) { if (leftLaser != null) leftLaser.OnTriggerReleased(); }
     void OnLeftReturn(InputAction.CallbackContext ctx)       { if (leftHolder != null) leftHolder.OnReturnButton(); }
     void OnLeftGripPressed(InputAction.CallbackContext ctx)  { }
     void OnLeftGripReleased(InputAction.CallbackContext ctx) { if (leftHolder != null) leftHolder.OnGripReleased(); }
 
     void OnRightLaserToggle(InputAction.CallbackContext ctx) { if (rightLaser != null) rightLaser.OnToggleButton(); }
     void OnRightTrigger(InputAction.CallbackContext ctx)     { if (rightLaser != null) rightLaser.OnTriggerButton(); }
+    void OnRightTriggerReleased(InputAction.CallbackContext ctx) { if (rightLaser != null) rightLaser.OnTriggerReleased(); }
     void OnRightReturn(InputAction.CallbackContext ctx)      { if (rightHolder != null) rightHolder.OnReturnButton(); }
     void OnRightGripPressed(InputAction.CallbackContext ctx) { }
     void OnRightGripReleased(InputAction.CallbackContext ctx){ if (rightHolder != null) rightHolder.OnGripReleased(); }

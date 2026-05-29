@@ -56,7 +56,7 @@ public class LaserPointer : MonoBehaviour
         }
 
         var loaded = TryLoadInputActions();
-        Debug.Log($"[LaserPointer] {gameObject.name} Awake: Hand={Hand}, actionsLoaded={loaded}, toggleAction={(toggleAction != null ? "found" : "null")}, triggerAction={(triggerAction != null ? "found" : "null")}");
+        Debug.Log($"[LaserPointer] {gameObject.name} Awake: Hand={Hand}, actionsLoaded={loaded}, toggleAction={(toggleAction != null ? "found" : "null")}");
         if (loaded)
             BindInput();
     }
@@ -98,8 +98,10 @@ public class LaserPointer : MonoBehaviour
     {
         string prefix = Hand == HandSide.Left ? "Left" : "Right";
 
-        toggleAction = jigsawMap.FindAction(prefix + "LaserToggle");
-        triggerAction = jigsawMap.FindAction(prefix + "Trigger");
+        toggleAction = inputActions.FindAction(prefix + "LaserToggle");
+        triggerAction = inputActions.FindAction(prefix + "Trigger");
+
+        Debug.Log($"[LaserPointer] {gameObject.name} BindInput: prefix={prefix}, toggleAction={(toggleAction != null ? toggleAction.name : "NULL")}, triggerAction={(triggerAction != null ? triggerAction.name : "NULL")}");
 
         if (toggleAction != null)
             toggleAction.performed += OnTogglePerformed;
@@ -140,7 +142,12 @@ public class LaserPointer : MonoBehaviour
         OnToggleButton();
     }
     void OnTriggerPerformed(InputAction.CallbackContext ctx) => OnTriggerButton();
-    void OnTriggerCanceled(InputAction.CallbackContext ctx) => pieceHolder?.ReleasePiece();
+    void OnTriggerCanceled(InputAction.CallbackContext ctx) => OnTriggerReleased();
+
+    /// <summary>Timeout duration before trigger can pull a piece after laser activation. Serialised for tuning.</summary>
+    [SerializeField] private float triggerDebounceDuration = 0.5f;
+    private float triggerDebounceEndTime;
+    private int lastTriggerFrame = -1;
 
     void Update()
     {
@@ -186,18 +193,48 @@ public class LaserPointer : MonoBehaviour
     /// <summary>Toggles the laser pointer on or off.</summary>
     public void OnToggleButton()
     {
+        if (InGameMenuController.IsMenuActive) return;
         isActive = !isActive;
     }
 
-    /// <summary>When laser is off, tries local grab. When laser is on, uses laser pointer pull.</summary>
+    /// <summary>
+    /// Trigger behaviour: local-grab first, then off→on (with debounce), on+target→pull, on+no target→off.
+    /// Called by JigsawInputBinder on trigger press.
+    /// </summary>
     public void OnTriggerButton()
     {
+        if (Time.frameCount == lastTriggerFrame) return;
+        lastTriggerFrame = Time.frameCount;
+
+        if (InGameMenuController.IsMenuActive) return;
         if (pieceHolder == null || pieceHolder.IsHolding) return;
 
-        if (!isActive && pieceHolder.TryLocalGrab()) return;
+        if (pieceHolder.TryLocalGrab()) return;
 
-        if (isActive && targetedPiece != null && !targetedPiece.IsFlying())
-            PullPiece(targetedPiece);
+        if (!isActive)
+        {
+            isActive = true;
+            triggerDebounceEndTime = Time.unscaledTime + triggerDebounceDuration;
+            return;
+        }
+
+        if (targetedPiece != null && !targetedPiece.IsFlying())
+        {
+            if (Time.unscaledTime >= triggerDebounceEndTime)
+                PullPiece(targetedPiece);
+            return;
+        }
+
+        isActive = false;
+        ClearHighlight();
+    }
+
+    /// <summary>Called when trigger is released. Only releases if actually holding a piece.</summary>
+    public void OnTriggerReleased()
+    {
+        if (InGameMenuController.IsMenuActive) return;
+        if (pieceHolder != null && pieceHolder.IsHolding)
+            pieceHolder.ReleasePiece();
     }
 
     /// <summary>Initiates the fly-to-hand animation for a piece (and its cluster) and grabs on arrival.</summary>

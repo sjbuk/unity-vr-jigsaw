@@ -85,6 +85,15 @@
           "processors": "",
           "interactions": "",
           "initialStateCheck": false
+        },
+        {
+          "name": "LeftMenuButton",
+          "type": "Button",
+          "id": "a1000000-0000-0000-0000-000000000010",
+          "expectedControlType": "Button",
+          "processors": "",
+          "interactions": "",
+          "initialStateCheck": false
         }
       ],
       "bindings": [
@@ -184,6 +193,17 @@
           "processors": "",
           "groups": "XR Controller",
           "action": "SnapTurn",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "b1000000-0000-0000-0000-000000000010",
+          "path": "<XRController>{LeftHand}/menu",
+          "interactions": "",
+          "processors": "",
+          "groups": "XR Controller",
+          "action": "LeftMenuButton",
           "isComposite": false,
           "isPartOfComposite": false
         }

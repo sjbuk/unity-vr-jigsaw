@@ -148,13 +148,15 @@ public class PieceHolder : MonoBehaviour
     /// <summary>Flies the held piece back to the nearest empty wall slot.</summary>
     public void ReturnPieceToWall()
     {
+        if (InGameMenuController.IsMenuActive) return;
         if (!IsHolding || wallGrid == null) return;
 
         int nearestSlot = wallGrid.GetNearestEmptySlot(heldPiece.transform.position);
         if (nearestSlot < 0) return;
 
         Vector3 targetPos = wallGrid.SlotPositions[nearestSlot];
-        Quaternion targetRot = wallGrid.SlotRotations[nearestSlot];
+        Vector3 playerPos = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
+        Quaternion targetRot = wallGrid.GetSlotRotation(nearestSlot, playerPos);
 
         var cluster = (snapSystem != null) ? snapSystem.GetClusterPieceStates(heldPiece.ClusterId) : new List<PieceState> { heldPiece };
 
@@ -179,7 +181,7 @@ public class PieceHolder : MonoBehaviour
     /// <summary>Called when grip is pressed (reserved for future use).</summary>
     public void OnGripPressed() { }
     /// <summary>Called when grip is released — releases the held piece.</summary>
-    public void OnGripReleased() { ReleasePiece(); }
+    public void OnGripReleased() { if (!InGameMenuController.IsMenuActive) ReleasePiece(); }
     /// <summary>Called when the return button is pressed — returns the piece to the wall.</summary>
     public void OnReturnButton() { ReturnPieceToWall(); }
 }

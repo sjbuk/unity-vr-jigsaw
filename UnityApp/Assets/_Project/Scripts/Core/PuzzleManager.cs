@@ -46,12 +46,20 @@ public class PuzzleManager : MonoBehaviour
                         LoadOnStart = LoadMode.NewGame;
                     }
                 }
-                if (string.IsNullOrEmpty(PuzzleFolderPath))
-                {
-                    Debug.LogError("PuzzleFolderPath not set and no puzzles found!");
-                    return;
-                }
             }
+
+            if (string.IsNullOrEmpty(PuzzleFolderPath))
+            {
+                Debug.LogError("PuzzleFolderPath not set and no puzzles found!");
+                return;
+            }
+
+            if (FindObjectOfType<InGameMenuController>() == null)
+            {
+                var menuGo = new GameObject("InGameMenuController");
+                menuGo.AddComponent<InGameMenuController>();
+            }
+
             await LoadPuzzle();
         }
         catch (System.Exception e)
@@ -278,12 +286,15 @@ public class PuzzleManager : MonoBehaviour
                 (slotIndices[i], slotIndices[j]) = (slotIndices[j], slotIndices[i]);
             }
         }
+
+        Vector3 playerPos = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
+
         for (int i = 0; i < pieces.Count; i++)
         {
             int slotIdx = slotIndices[i];
             var piece = pieces[i];
             piece.transform.position = wallGrid.SlotPositions[slotIdx];
-            piece.transform.rotation = wallGrid.SlotRotations[slotIdx];
+            piece.transform.rotation = wallGrid.GetSlotRotation(slotIdx, playerPos);
             piece.WallSlotIndex = slotIdx;
             piece.CurrentState = PieceStateEnum.OnWall;
             wallGrid.OccupySlot(slotIdx, piece.PieceId);

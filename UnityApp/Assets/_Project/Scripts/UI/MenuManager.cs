@@ -13,16 +13,105 @@ using TMPro;
 
 /// <summary>
 /// Manages the main menu scene: discovers puzzle folders, creates interactive cards for each,
-/// and handles puzzle start/reset actions. Also sets up XR UI interaction at runtime.
+/// and handles puzzle start/reset actions. Also performs runtime XR UI interaction setup.
+///
+/// === XR UI INTERACTION ARCHITECTURE ===
+///
+/// The standard XRI Toolkit pipeline (NearFarInteractor → TrackedDeviceGraphicRaycaster →
+/// InputSystemUIInputModule) was NOT working for the MainMenu scene due to multiple issues:
+///
+///   1. NO UI Canvas in the saved scene. MenuManager creates one dynamically ("Menu Panels Container")
+///      but originally only added a bare Canvas component — missing CanvasScaler, GraphicRaycaster,
+///      and TrackedDeviceGraphicRaycaster.
+///
+///   2. WRONG TYPE NAME in the original TrackedDeviceRaycaster reflection code. The actual XRI class
+///      is called "TrackedDeviceGraphicRaycaster" (not "TrackedDeviceRaycaster"). The typo in both
+///      JigsawSceneSetup.cs:718 and the original MenuManager fallback code meant the raycaster was
+///      never added to the canvas.
+///
+///   3. BROKEN GUID on InputSystemUIInputModule actionsAsset. The MainMenu scene references an
+///      InputActionAsset with GUID ca9f5fa95ffab41fb9a615ab714db018 that does not match any
+///      existing .inputactions file. Individual action references (PointAction, TrackedDevicePosition,
+///      etc.) all point to this missing asset, resolving to null at runtime.
+///
+///   4. XRI UI MAP lacks tracked-device actions. The "XRI UI" map in XRI Default Input Actions
+///      has Point/Click/Navigate etc. but NOT TrackedDevicePosition/TrackedDeviceOrientation.
+///      The standard InputSystem_Actions.inputactions "UI" map DOES have these.
+///
+///   5. WorldSpace Canvas GraphicRaycaster.Raycast() uses screen-space hit testing which does not
+///      work for 3D VR WorldSpace canvases. The TrackedDeviceGraphicRaycaster is the correct
+///      raycaster but requires a working InputSystemUIInputModule pipeline.
+///
+///   6. Canvas positioned at y=0 but XR camera at y≈1.36. Cards parented to canvas but positioned
+///      at camera height → outside canvas RectTransform bounds → unreachable.
+///
+/// === FIXES APPLIED (all in MenuManager.Start) ===
+///
+/// SetupContainer():
+///   - Creates "Menu Panels Container" Canvas in WorldSpace mode
+///   - Adds CanvasScaler, GraphicRaycaster, TrackedDeviceGraphicRaycaster (via assembly search)
+///   - Sets canvas.worldCamera to the XR camera
+///
+/// SetupXRTrackingOrigin():
+///   - Sets InputSystemUIInputModule.xrTrackingOrigin to XR Origin transform
+///   - FixInputSystemActions: loads InputSystem_Actions asset, repairs all broken action references
+///     (PointAction, TrackedDevicePositionAction, etc.)
+///
+/// SetupCanvasWorldCamera():
+///   - Positions the canvas at the XR camera's y-height so cards fall within canvas bounds
+///
+/// SetupMenuUIControllers():
+///   - Disables LaserPointer, PieceHolder, PokeInteractor, TeleportInteractor (not needed in menu)
+///   - Hides LaserVisual child (stale puzzle laser)
+///   - Configures NearFarInteractor: enableNearCasting=false, enableFarCasting=true, enableUIInteraction=true
+///   - Configures CurveVisualController: extendLineToEmptyHit=true, restingVisualLineLength=3m
+///     → provides the visible white laser from each controller
+///   - Enables "XRI Left Interaction" and "XRI Right Interaction" action maps via reflection
+///     on ControllerInputActionManager
+///
+/// HandleDirectUIClick() [called every frame from Update]:
+///   - UpdateHover: finds button under active controller ray, lerps its Image.color
+///     to hoverHighlightColor. Restores original on exit.
+///   - HandleDirectUIClick: reads UI Press action from the active controller only
+///   - On trigger press, projects a 3D ray from the controller transform
+///   - FindClosestButtonUnderRay: iterates all Button children of the canvas, computes
+///     perpendicular distance from each button to the ray, selects the closest within
+///     the button's half-size threshold
+///   - Invokes button.onClick directly — bypasses the XRI UI event pipeline entirely
+///     because the standard pipeline relies on working TrackedDevicePosition/Orientation
+///     actions and the NearFarInteractor ↔ InputSystemUIInputModule bridge, which had
+///     too many failure points
+///
+/// === PUBLIC PROPERTIES ===
+///   - activeController: which controller (Left/Right) drives the menu ray and clicks
+///   - hoverHighlightColor: color applied when ray points at a button
+///   - hoverFadeSpeed: how fast the hover color fades in/out
+///
+/// === KNOWN LIMITATIONS ===
+///   - The direct click handler does not support UI scroll
+///   - It finds buttons by 3D proximity, not by Unity UI raycast ordering
 /// </summary>
 public class MenuManager : MonoBehaviour
 {
+    public enum ActiveController { Left, Right }
+
+    [Header("Puzzle Setup")]
     public GameObject puzzleCardPrefab;
     public Transform cardsContainer;
     public float cardSpacing = 0.55f;
     public float cardWorldScale = 1f;
     public float menuHeight = 0f;
     public float menuForwardDistance = 1.5f;
+
+    [Header("Input")]
+    [Tooltip("Which controller drives the menu ray and clicks.")]
+    public ActiveController activeController = ActiveController.Left;
+
+    [Header("Hover")]
+    [Tooltip("Color applied when the ray points at a button.")]
+    public Color hoverHighlightColor = new Color(0.2f, 0.7f, 1f, 1f);
+    [Tooltip("How fast the highlight color fades in (seconds).")]
+    public float hoverFadeSpeed = 6f;
 
     private string puzzlesPath;
     private List<PuzzleInfo> discoveredPuzzles;
@@ -31,6 +120,11 @@ public class MenuManager : MonoBehaviour
 
     private InputAction leftTriggerAction;
     private InputAction rightTriggerAction;
+
+    private Button hoveredButton;
+    private Image hoveredButtonImage;
+    private Color hoveredOriginalColor;
+    private Color hoverCurrentColor;
 
     void Start()
     {
@@ -61,7 +155,8 @@ public class MenuManager : MonoBehaviour
             OnStartPuzzle(discoveredPuzzles[0], false);
         }
 
-        HandleDirectUIClicks();
+        UpdateHover();
+        HandleDirectUIClick();
     }
 
     void SetupContainer()
@@ -165,10 +260,15 @@ public class MenuManager : MonoBehaviour
     {
         EnableXRInteractionMaps();
 
+        string activeName = activeController == ActiveController.Left ? "Left Controller" : "Right Controller";
+        string inactiveName = activeController == ActiveController.Left ? "Right Controller" : "Left Controller";
+
         foreach (var t in FindObjectsOfType<Transform>())
         {
             if (t.name != "Left Controller" && t.name != "Right Controller")
                 continue;
+
+            bool isActive = t.name == activeName;
 
             foreach (var lp in t.GetComponentsInChildren<LaserPointer>(true))
                 lp.enabled = false;
@@ -182,8 +282,8 @@ public class MenuManager : MonoBehaviour
             foreach (var nf in t.GetComponentsInChildren<NearFarInteractor>(true))
             {
                 nf.enableNearCasting = false;
-                nf.enableFarCasting = true;
-                nf.enableUIInteraction = true;
+                nf.enableFarCasting = isActive;
+                nf.enableUIInteraction = isActive;
             }
 
             foreach (var poke in t.GetComponentsInChildren<UnityEngine.XR.Interaction.Toolkit.Interactors.XRPokeInteractor>(true))
@@ -198,8 +298,8 @@ public class MenuManager : MonoBehaviour
 
             foreach (var visual in t.GetComponentsInChildren<CurveVisualController>(true))
             {
-                visual.extendLineToEmptyHit = true;
-                visual.restingVisualLineLength = 3f;
+                visual.extendLineToEmptyHit = isActive;
+                visual.restingVisualLineLength = isActive ? 3f : 0f;
             }
         }
     }
@@ -247,7 +347,42 @@ public class MenuManager : MonoBehaviour
         }
     }
 
-    void HandleDirectUIClicks()
+    void UpdateHover()
+    {
+        if (workingContainer == null) return;
+        var activeTransform = GetActiveControllerTransform();
+        if (activeTransform == null) return;
+
+        var origin = activeTransform.position;
+        var forward = activeTransform.forward;
+        var newHover = FindClosestButtonUnderRay(origin, forward);
+
+        if (newHover != hoveredButton)
+        {
+            if (hoveredButton != null && hoveredButtonImage != null)
+            {
+                hoveredButtonImage.color = hoveredOriginalColor;
+                hoveredButtonImage = null;
+            }
+            hoveredButton = newHover;
+            hoverCurrentColor = hoveredOriginalColor;
+
+            if (hoveredButton != null)
+            {
+                hoveredButtonImage = hoveredButton.GetComponent<Image>();
+                if (hoveredButtonImage != null)
+                    hoveredOriginalColor = hoveredButtonImage.color;
+            }
+        }
+
+        if (hoveredButton != null && hoveredButtonImage != null)
+        {
+            hoverCurrentColor = Color.Lerp(hoverCurrentColor, hoverHighlightColor, Time.deltaTime * hoverFadeSpeed);
+            hoveredButtonImage.color = hoverCurrentColor;
+        }
+    }
+
+    void HandleDirectUIClick()
     {
         if (workingContainer == null) return;
 
@@ -265,21 +400,34 @@ public class MenuManager : MonoBehaviour
             }
         }
 
-        foreach (var t in FindObjectsOfType<Transform>())
+        var activeTransform = GetActiveControllerTransform();
+        if (activeTransform == null) return;
+
+        var triggerAction = activeTransform.name == "Left Controller" ? leftTriggerAction : rightTriggerAction;
+        if (triggerAction == null) return;
+        if (!triggerAction.WasPressedThisFrame()) return;
+
+        var origin = activeTransform.position;
+        var forward = activeTransform.forward;
+        var hitButton = FindClosestButtonUnderRay(origin, forward);
+        if (hitButton != null)
         {
-            if (t.name != "Left Controller" && t.name != "Right Controller")
-                continue;
-
-            var triggerAction = t.name == "Left Controller" ? leftTriggerAction : rightTriggerAction;
-            if (triggerAction == null) continue;
-            if (!triggerAction.WasPressedThisFrame()) continue;
-
-            var origin = t.position;
-            var forward = t.forward;
-            var hitButton = FindClosestButtonUnderRay(origin, forward);
-            if (hitButton != null)
-                hitButton.onClick.Invoke();
+            if (hoveredButtonImage != null)
+            {
+                hoveredButtonImage.color = hoveredOriginalColor;
+                hoveredButtonImage = null;
+            }
+            hitButton.onClick.Invoke();
         }
+    }
+
+    Transform GetActiveControllerTransform()
+    {
+        string targetName = activeController == ActiveController.Left ? "Left Controller" : "Right Controller";
+        foreach (var t in FindObjectsOfType<Transform>())
+            if (t.name == targetName)
+                return t;
+        return null;
     }
 
     Button FindClosestButtonUnderRay(Vector3 origin, Vector3 direction)

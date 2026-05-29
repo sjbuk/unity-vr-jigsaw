@@ -3,6 +3,7 @@ using System.IO;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.InputSystem;
+using TMPro;
 
 /// <summary>
 /// Manages the main menu scene: discovers puzzle folders, creates interactive cards for each,
@@ -12,15 +13,15 @@ public class MenuManager : MonoBehaviour
 {
     public GameObject puzzleCardPrefab;
     public Transform cardsContainer;
-    public float cardSpacing = 0.4f;
-    public float panelDistance = 1.5f;
-    public float cardWorldScale = 0.3f;
-    public float menuHeight = 1.6f;
+    public float cardSpacing = 0.55f;
+    public float cardWorldScale = 1f;
+    public float menuHeight = 0f;
     public float menuForwardDistance = 1.5f;
 
     private string puzzlesPath;
     private List<PuzzleInfo> discoveredPuzzles;
     private Transform workingContainer;
+    private TMP_Text titleText;
 
     void Update()
     {
@@ -44,18 +45,17 @@ public class MenuManager : MonoBehaviour
         Directory.CreateDirectory(puzzlesPath);
 
         SetupContainer();
+        CreateTitle();
         this.DiscoverPuzzles();
         ArrangePanels();
     }
 
-    /// <summary>Sets up the UI canvas container for puzzle cards, using an existing canvas or creating a new one.</summary>
     void SetupContainer()
     {
         var existingCanvas = GameObject.Find("UI Canvas");
         if (existingCanvas != null)
         {
             workingContainer = existingCanvas.transform;
-            Debug.Log($"[MenuManager] Using existing UI Canvas at {workingContainer.position}");
             return;
         }
 
@@ -66,18 +66,42 @@ public class MenuManager : MonoBehaviour
 
         var canvas = containerGO.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
-        canvas.worldCamera = Camera.main;
 
         workingContainer = containerGO.transform;
-        Debug.Log($"[MenuManager] Created fresh canvas container at {workingContainer.position}");
     }
 
-    /// <summary>Scans the puzzles directory for valid puzzle folders with checkpoint.json and creates PuzzleInfo entries.</summary>
+    void CreateTitle()
+    {
+        if (workingContainer == null) return;
+
+        var cam = Camera.main;
+        if (cam == null) return;
+
+        var titleGO = new GameObject("Title", typeof(RectTransform));
+        titleGO.transform.SetParent(workingContainer, false);
+
+        var rt = titleGO.GetComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(2f, 0.15f);
+
+        Vector3 forward = cam.transform.forward;
+        titleGO.transform.position = cam.transform.position
+            + forward * menuForwardDistance
+            + Vector3.up * (menuHeight + 0.28f);
+
+        titleText = titleGO.AddComponent<TextMeshProUGUI>();
+        titleText.text = "Jigsaw VR";
+        titleText.fontSize = 0.12f;
+        titleText.alignment = TextAlignmentOptions.Center;
+        titleText.color = Color.white;
+        titleText.fontStyle = FontStyles.Bold;
+
+        if (titleText.font == null)
+            titleText.font = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
+    }
+
     void DiscoverPuzzles()
     {
         discoveredPuzzles = new List<PuzzleInfo>();
-
-        Debug.Log($"[MenuManager] Scanning puzzles at: {puzzlesPath}");
 
         if (!Directory.Exists(puzzlesPath))
         {
@@ -86,28 +110,15 @@ public class MenuManager : MonoBehaviour
         }
 
         var dirs = Directory.GetDirectories(puzzlesPath);
-        Debug.Log($"[MenuManager] Found {dirs.Length} directories");
 
         foreach (var dir in dirs)
         {
             string checkpoint = Path.Combine(dir, "checkpoint.json");
-            if (!File.Exists(checkpoint))
-            {
-                Debug.LogWarning($"[MenuManager] No checkpoint.json in {dir}, skipping");
-                continue;
-            }
+            if (!File.Exists(checkpoint)) continue;
 
-            Debug.Log($"[MenuManager] Parsing checkpoint: {checkpoint}");
             var json = File.ReadAllText(checkpoint);
             var data = JsonUtility.FromJson<CheckpointData>(json);
-
-            if (data == null)
-            {
-                Debug.LogError($"[MenuManager] Failed to parse checkpoint.json in {dir}");
-                continue;
-            }
-
-            Debug.Log($"[MenuManager] Puzzle '{Path.GetFileName(dir)}': {data.piece_count} pieces, adjacency entries: {data.adjacency?.Length ?? 0}");
+            if (data == null) continue;
 
             string thumbnail = Path.Combine(dir, "preview.png");
             string save = Path.Combine(dir, "save.json");
@@ -140,15 +151,14 @@ public class MenuManager : MonoBehaviour
         }
     }
 
-    /// <summary>Instantiates PuzzleCard prefabs for each discovered puzzle and arranges them in a horizontal row.</summary>
     void ArrangePanels()
     {
         int count = discoveredPuzzles.Count;
-        Debug.Log($"[MenuManager] Arranging {count} puzzle panels");
 
         if (count == 0)
         {
-            Debug.Log("[MenuManager] No puzzles found in " + puzzlesPath);
+            if (titleText != null)
+                titleText.text = "No Puzzles Found";
             return;
         }
 
@@ -159,20 +169,20 @@ public class MenuManager : MonoBehaviour
         }
 
         var cam = Camera.main;
-        Debug.Log($"[MenuManager] Camera pos={cam.transform.position}, forward={cam.transform.forward}, canvas pos={workingContainer.position}");
+        if (cam == null) return;
 
-        Debug.Log("[MenuManager] Instantiating puzzle cards...");
+        Vector3 forward = cam.transform.forward;
+        Vector3 right = cam.transform.right;
 
         for (int i = 0; i < count; i++)
         {
             var card = Instantiate(puzzleCardPrefab, workingContainer);
-            Vector3 forward = cam.transform.forward;
-            Vector3 right = cam.transform.right;
 
             float totalWidth = (count - 1) * cardSpacing;
             float offsetX = -totalWidth * 0.5f + i * cardSpacing;
 
-            Vector3 worldCenter = cam.transform.position + forward * menuForwardDistance
+            Vector3 worldCenter = cam.transform.position
+                + forward * menuForwardDistance
                 + Vector3.up * menuHeight
                 + right * offsetX;
 
@@ -180,19 +190,12 @@ public class MenuManager : MonoBehaviour
             card.transform.localScale = new Vector3(cardWorldScale, cardWorldScale, cardWorldScale);
             card.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
 
-            Debug.Log($"[MenuManager] Card {i} worldPos={card.transform.position}");
-
             var puzzleCard = card.GetComponent<PuzzleCard>();
             if (puzzleCard != null)
                 puzzleCard.Initialize(discoveredPuzzles[i], this);
-            else
-                Debug.LogError($"[MenuManager] Card {i} has no PuzzleCard component! Prefab: {puzzleCardPrefab?.name}");
         }
     }
 
-    /// <summary>Starts a puzzle by setting the static PuzzleManager fields and loading the PuzzleScene.</summary>
-    /// <param name="puzzle">The puzzle info to load.</param>
-    /// <param name="resume">If true, resumes from save; otherwise starts a new game.</param>
     public void OnStartPuzzle(PuzzleInfo puzzle, bool resume)
     {
         PuzzleManager.PuzzleFolderPath = puzzle.folderPath;
@@ -200,34 +203,25 @@ public class MenuManager : MonoBehaviour
         SceneManager.LoadScene("PuzzleScene");
     }
 
-    /// <summary>Deletes the save file for a puzzle and refreshes the menu cards.</summary>
-    /// <param name="puzzle">The puzzle to reset.</param>
     public void OnResetPuzzle(PuzzleInfo puzzle)
     {
         File.Delete(Path.Combine(puzzle.folderPath, "save.json"));
         foreach (Transform child in workingContainer)
             Destroy(child.gameObject);
+        titleText = null;
+        CreateTitle();
         this.DiscoverPuzzles();
         ArrangePanels();
     }
 }
 
-/// <summary>
-/// Metadata for a discovered puzzle, including its folder path, thumbnail, and save progress.
-/// </summary>
 [System.Serializable]
 public class PuzzleInfo
 {
-    /// <summary>Full path to the puzzle folder.</summary>
     public string folderPath;
-    /// <summary>Display name derived from the folder name.</summary>
     public string name;
-    /// <summary>Number of pieces in the puzzle.</summary>
     public int pieceCount;
-    /// <summary>Path to the preview thumbnail image, or null if not found.</summary>
     public string thumbnailPath;
-    /// <summary>Completion progress (0–1) from the save file, or 0 if unsaved.</summary>
     public float progress;
-    /// <summary>Whether a save file exists for this puzzle.</summary>
     public bool hasSave;
 }

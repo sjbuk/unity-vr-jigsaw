@@ -7,6 +7,8 @@ using Unity.XR.CoreUtils;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.InputSystem.XR;
 using UnityEngine.InputSystem.UI;
+using UnityEngine.UI;
+using TMPro;
 
 /// <summary>
 /// Editor window with menu commands for setting up Jigsaw VR scenes, configuring project settings,
@@ -15,7 +17,6 @@ using UnityEngine.InputSystem.UI;
 /// </summary>
 public class JigsawSceneSetup : EditorWindow
 {
-    /// <summary>Creates a new PuzzleScene with all required GameObjects and component references.</summary>
     [MenuItem("Jigsaw/Setup Puzzle Scene")]
     static void SetupPuzzleScene()
     {
@@ -30,7 +31,6 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log($"PuzzleScene created at {scenePath}");
     }
 
-    /// <summary>Creates a new MainMenu scene with XR Origin, MenuManager, UI canvas, and puzzle card prefab.</summary>
     [MenuItem("Jigsaw/Setup Main Menu Scene")]
     static void SetupMainMenuScene()
     {
@@ -45,7 +45,6 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log($"MainMenu created at {scenePath}");
     }
 
-    /// <summary>Runs all setup steps: creates all three scenes and configures project/build settings.</summary>
     [MenuItem("Jigsaw/Setup All Scenes & Project Settings")]
     static void SetupAll()
     {
@@ -58,7 +57,6 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log("Jigsaw VR project fully configured!");
     }
 
-    /// <summary>Creates an empty Bootstrap scene.</summary>
     static void SetupBootstrapScene()
     {
         string sceneDir = "Assets/_Project/Scenes";
@@ -68,8 +66,6 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log($"Bootstrap created at {scenePath}");
     }
 
-    /// <summary>Populates the PuzzleScene with all required GameObjects (PuzzleManager, WallGrid, SnapSystem, etc.) and links references.</summary>
-    /// <param name="scene">The scene to populate.</param>
     static void CreatePuzzleScene(Scene scene)
     {
         CreateDirectionalLight();
@@ -98,18 +94,80 @@ public class JigsawSceneSetup : EditorWindow
         GameObject uiCanvas = new GameObject("UI Canvas");
         var canvas = uiCanvas.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
+        canvas.worldCamera = xrOrigin.GetComponentInChildren<Camera>();
+        var canvasRT = canvas.GetComponent<RectTransform>();
+        canvasRT.SetParent(xrOrigin.GetComponentInChildren<XROrigin>().CameraFloorOffsetObject.transform);
+        canvasRT.localPosition = new Vector3(0, 0.4f, 1.5f);
+        canvasRT.sizeDelta = new Vector2(0.6f, 0.3f);
+        uiCanvas.AddComponent<CanvasScaler>();
+        uiCanvas.AddComponent<GraphicRaycaster>();
+        AddTrackedDeviceRaycaster(uiCanvas);
 
-        GameObject returnButton = new GameObject("Return To Menu Button");
-        returnButton.transform.SetParent(uiCanvas.transform);
-        returnButton.SetActive(false);
+        GameObject returnButton = CreateReturnButton(uiCanvas, completionFX);
 
         LinkPuzzleSceneReferences(puzzleManager, wallGrid, snapSystem, saveSystem, completionFX, audioManager, xrOrigin);
+
+        var es = FindObjectOfType<UnityEngine.EventSystems.EventSystem>();
+        if (es != null)
+        {
+            var inputModule = es.GetComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+            if (inputModule != null)
+                inputModule.xrTrackingOrigin = xrOrigin.GetComponent<XROrigin>().transform;
+        }
 
         EditorSceneManager.MarkSceneDirty(scene);
     }
 
-    /// <summary>Populates the MainMenu scene with XR Origin, MenuManager, UI canvas, and a PuzzleCard prefab.</summary>
-    /// <param name="scene">The scene to populate.</param>
+    static GameObject CreateReturnButton(GameObject parentCanvas, GameObject completionFX)
+    {
+        var btnGO = new GameObject("Return To Menu Button", typeof(RectTransform));
+        btnGO.transform.SetParent(parentCanvas.transform, false);
+        var rt = btnGO.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(0.25f, 0.07f);
+        rt.anchoredPosition = Vector2.zero;
+
+        var img = btnGO.AddComponent<Image>();
+        img.color = new Color(0.129f, 0.498f, 0.824f);
+        img.raycastTarget = true;
+
+        var btn = btnGO.AddComponent<Button>();
+        btn.targetGraphic = img;
+        btn.colors = new ColorBlock
+        {
+            normalColor = new Color(0.129f, 0.498f, 0.824f),
+            highlightedColor = new Color(0.259f, 0.647f, 0.961f),
+            pressedColor = new Color(0.078f, 0.376f, 0.624f),
+            selectedColor = new Color(0.129f, 0.498f, 0.824f),
+            disabledColor = new Color(0.3f, 0.3f, 0.3f, 0.5f),
+            colorMultiplier = 1f,
+            fadeDuration = 0.1f
+        };
+
+        var textGO = new GameObject("Text", typeof(RectTransform));
+        textGO.transform.SetParent(btnGO.transform, false);
+        var textRT = textGO.GetComponent<RectTransform>();
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.sizeDelta = Vector2.zero;
+        var tmp = textGO.AddComponent<TMPro.TextMeshProUGUI>();
+        tmp.text = "Return to Menu";
+        tmp.fontSize = 0.035f;
+        tmp.alignment = TMPro.TextAlignmentOptions.Center;
+        tmp.color = Color.white;
+        tmp.fontStyle = TMPro.FontStyles.Bold;
+        tmp.raycastTarget = false;
+
+        btnGO.SetActive(false);
+
+        var fx = completionFX.GetComponent<CompletionFX>();
+        if (fx != null)
+            fx.returnToMenuButton = btnGO;
+
+        return btnGO;
+    }
+
     static void CreateMainMenuScene(Scene scene)
     {
         CreateDirectionalLight();
@@ -131,15 +189,16 @@ public class JigsawSceneSetup : EditorWindow
         canvasRT.SetParent(xrOrigin.transform);
         canvasRT.localPosition = new Vector3(0, mm.menuHeight, mm.menuForwardDistance);
         canvasRT.sizeDelta = new Vector2(2, 1);
-        uiCanvas.AddComponent<UnityEngine.UI.CanvasScaler>();
-        uiCanvas.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+        uiCanvas.AddComponent<CanvasScaler>();
+        uiCanvas.AddComponent<GraphicRaycaster>();
+        AddTrackedDeviceRaycaster(uiCanvas);
 
         var textGO = new GameObject("Placeholder Text");
         textGO.transform.SetParent(canvasRT, false);
-        var text = textGO.AddComponent<TMPro.TextMeshPro>();
+        var text = textGO.AddComponent<TextMeshPro>();
         text.text = "Jigsaw VR — No puzzles found\nAdd puzzle folders to Assets/_Project/Puzzels/";
         text.fontSize = 0.08f;
-        text.alignment = TMPro.TextAlignmentOptions.Center;
+        text.alignment = TextAlignmentOptions.Center;
         text.color = Color.white;
         var textRT = text.GetComponent<RectTransform>();
         textRT.sizeDelta = new Vector2(2, 1);
@@ -150,66 +209,278 @@ public class JigsawSceneSetup : EditorWindow
 
         mm.puzzleCardPrefab = CreatePuzzleCardPrefab();
 
+        var es = FindObjectOfType<UnityEngine.EventSystems.EventSystem>();
+        if (es != null)
+        {
+            var inputModule = es.GetComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+            if (inputModule != null)
+                inputModule.xrTrackingOrigin = xrOrigin.GetComponent<XROrigin>().transform;
+        }
+
         EditorSceneManager.MarkSceneDirty(scene);
     }
 
-    /// <summary>Creates or loads the PuzzleCard prefab with UI sub-objects (background, name text, count text).</summary>
-    /// <returns>The existing or newly created PuzzleCard prefab.</returns>
     static GameObject CreatePuzzleCardPrefab()
     {
         string prefabPath = "Assets/_Project/Prefabs/PuzzleCard.prefab";
-        var existing = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
-        if (existing != null) return existing;
 
-        var card = new GameObject("PuzzleCard", typeof(RectTransform));
+        GameObject card = new GameObject("PuzzleCard", typeof(RectTransform));
+        var cardRT = card.GetComponent<RectTransform>();
+        cardRT.sizeDelta = new Vector2(0.4f, 0.5f);
+
         var puzzleCard = card.AddComponent<PuzzleCard>();
 
-        var bg = new GameObject("Background", typeof(RectTransform));
-        bg.transform.SetParent(card.transform, false);
-        var img = bg.AddComponent<UnityEngine.UI.Image>();
-        img.color = new Color(0.2f, 0.2f, 0.2f, 0.8f);
-        var bgRT = bg.GetComponent<RectTransform>();
-        bgRT.anchorMin = Vector2.zero;
-        bgRT.anchorMax = Vector2.one;
-        bgRT.offsetMin = Vector2.zero;
-        bgRT.offsetMax = Vector2.zero;
+        CreateCardBackground(card, cardRT);
 
-        var nameGO = new GameObject("NameText", typeof(RectTransform));
-        nameGO.transform.SetParent(card.transform, false);
-        var nameText = nameGO.AddComponent<TMPro.TextMeshPro>();
-        nameText.text = "Puzzle Name";
-        nameText.fontSize = 18f;
-        nameText.alignment = TMPro.TextAlignmentOptions.TopLeft;
-        nameText.color = Color.white;
-        var nameRT = nameGO.GetComponent<RectTransform>();
-        nameRT.anchorMin = new Vector2(0, 0.5f);
-        nameRT.anchorMax = new Vector2(1, 1);
-        nameRT.offsetMin = new Vector2(0.02f, 0);
-        nameRT.offsetMax = new Vector2(-0.02f, -0.02f);
-        puzzleCard.nameText = nameText;
+        CreateThumbnailArea(card, puzzleCard);
 
-        var countGO = new GameObject("CountText", typeof(RectTransform));
-        countGO.transform.SetParent(card.transform, false);
-        var countText = countGO.AddComponent<TMPro.TextMeshPro>();
-        countText.text = "0 pieces";
-        countText.fontSize = 12f;
-        countText.alignment = TMPro.TextAlignmentOptions.TopLeft;
-        countText.color = Color.gray;
-        var countRT = countGO.GetComponent<RectTransform>();
-        countRT.anchorMin = new Vector2(0, 0);
-        countRT.anchorMax = new Vector2(1, 0.5f);
-        countRT.offsetMin = new Vector2(0.02f, 0.02f);
-        countRT.offsetMax = new Vector2(-0.02f, -0.02f);
-        puzzleCard.pieceCountText = countText;
+        CreateNameText(card, puzzleCard);
+        CreatePieceCountText(card, puzzleCard);
+        CreateProgressArea(card, puzzleCard);
+        CreateButtonRow(card, puzzleCard);
 
         Directory.CreateDirectory("Assets/_Project/Prefabs");
+
+        var existing = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+        if (existing != null)
+        {
+            AssetDatabase.DeleteAsset(prefabPath);
+        }
+
         var prefab = PrefabUtility.SaveAsPrefabAsset(card, prefabPath);
         Object.DestroyImmediate(card);
         return prefab;
     }
 
-    /// <summary>Creates a full XR Origin hierarchy with camera floor offset, main camera, left/right controllers, and laser pointer setup.</summary>
-    /// <returns>The root XR Origin GameObject.</returns>
+    static void CreateCardBackground(GameObject card, RectTransform cardRT)
+    {
+        var borderGO = new GameObject("PanelBorder", typeof(RectTransform));
+        borderGO.transform.SetParent(card.transform, false);
+        var borderRT = borderGO.GetComponent<RectTransform>();
+        borderRT.anchorMin = Vector2.zero;
+        borderRT.anchorMax = Vector2.one;
+        borderRT.offsetMin = Vector2.zero;
+        borderRT.offsetMax = Vector2.zero;
+        var borderImg = borderGO.AddComponent<Image>();
+        borderImg.color = new Color(0.18f, 0.18f, 0.28f, 1f);
+        borderImg.raycastTarget = false;
+
+        var bgGO = new GameObject("PanelBackground", typeof(RectTransform));
+        bgGO.transform.SetParent(card.transform, false);
+        var bgRT = bgGO.GetComponent<RectTransform>();
+        bgRT.anchorMin = Vector2.zero;
+        bgRT.anchorMax = Vector2.one;
+        bgRT.offsetMin = new Vector2(0.005f, 0.005f);
+        bgRT.offsetMax = new Vector2(-0.005f, -0.005f);
+        var bgImg = bgGO.AddComponent<Image>();
+        bgImg.color = new Color(0.078f, 0.078f, 0.106f, 0.92f);
+        bgImg.raycastTarget = true;
+    }
+
+    static void CreateThumbnailArea(GameObject card, PuzzleCard puzzleCard)
+    {
+        var frameGO = new GameObject("ThumbnailFrame", typeof(RectTransform));
+        frameGO.transform.SetParent(card.transform, false);
+        var frameRT = frameGO.GetComponent<RectTransform>();
+        frameRT.anchorMin = new Vector2(0.025f, 0.55f);
+        frameRT.anchorMax = new Vector2(0.975f, 0.95f);
+        frameRT.offsetMin = Vector2.zero;
+        frameRT.offsetMax = Vector2.zero;
+        var frameImg = frameGO.AddComponent<Image>();
+        frameImg.color = new Color(0.22f, 0.22f, 0.32f, 1f);
+        frameImg.raycastTarget = false;
+
+        var thumbGO = new GameObject("ThumbnailImage", typeof(RectTransform));
+        thumbGO.transform.SetParent(frameGO.transform, false);
+        var thumbRT = thumbGO.GetComponent<RectTransform>();
+        thumbRT.anchorMin = new Vector2(0.04f, 0.06f);
+        thumbRT.anchorMax = new Vector2(0.96f, 0.94f);
+        thumbRT.offsetMin = Vector2.zero;
+        thumbRT.offsetMax = Vector2.zero;
+        var rawImg = thumbGO.AddComponent<RawImage>();
+        rawImg.color = new Color(0.15f, 0.15f, 0.2f, 1f);
+        rawImg.raycastTarget = false;
+        puzzleCard.thumbnailImage = rawImg;
+    }
+
+    static void CreateNameText(GameObject card, PuzzleCard puzzleCard)
+    {
+        var nameGO = new GameObject("NameText", typeof(RectTransform));
+        nameGO.transform.SetParent(card.transform, false);
+        var nameRT = nameGO.GetComponent<RectTransform>();
+        nameRT.anchorMin = new Vector2(0.04f, 0.49f);
+        nameRT.anchorMax = new Vector2(0.96f, 0.55f);
+        nameRT.offsetMin = Vector2.zero;
+        nameRT.offsetMax = Vector2.zero;
+        var nameText = nameGO.AddComponent<TextMeshProUGUI>();
+        nameText.text = "Puzzle Name";
+        nameText.fontSize = 0.035f;
+        nameText.alignment = TextAlignmentOptions.Left;
+        nameText.color = Color.white;
+        nameText.fontStyle = FontStyles.Bold;
+        nameText.raycastTarget = false;
+        puzzleCard.nameText = nameText;
+    }
+
+    static void CreatePieceCountText(GameObject card, PuzzleCard puzzleCard)
+    {
+        var countGO = new GameObject("PieceCountText", typeof(RectTransform));
+        countGO.transform.SetParent(card.transform, false);
+        var countRT = countGO.GetComponent<RectTransform>();
+        countRT.anchorMin = new Vector2(0.04f, 0.45f);
+        countRT.anchorMax = new Vector2(0.96f, 0.49f);
+        countRT.offsetMin = Vector2.zero;
+        countRT.offsetMax = Vector2.zero;
+        var countText = countGO.AddComponent<TextMeshProUGUI>();
+        countText.text = "0 pieces";
+        countText.fontSize = 0.025f;
+        countText.alignment = TextAlignmentOptions.Left;
+        countText.color = new Color(0.6f, 0.6f, 0.65f);
+        countText.raycastTarget = false;
+        puzzleCard.pieceCountText = countText;
+    }
+
+    static void CreateProgressArea(GameObject card, PuzzleCard puzzleCard)
+    {
+        var progressTextGO = new GameObject("ProgressText", typeof(RectTransform));
+        progressTextGO.transform.SetParent(card.transform, false);
+        var ptRT = progressTextGO.GetComponent<RectTransform>();
+        ptRT.anchorMin = new Vector2(0.04f, 0.41f);
+        ptRT.anchorMax = new Vector2(0.96f, 0.45f);
+        ptRT.offsetMin = Vector2.zero;
+        ptRT.offsetMax = Vector2.zero;
+        var pt = progressTextGO.AddComponent<TextMeshProUGUI>();
+        pt.text = "0%";
+        pt.fontSize = 0.02f;
+        pt.alignment = TextAlignmentOptions.Right;
+        pt.color = new Color(0.5f, 0.5f, 0.55f);
+        pt.raycastTarget = false;
+        puzzleCard.progressText = pt;
+
+        var sliderGO = new GameObject("ProgressSlider", typeof(RectTransform));
+        sliderGO.transform.SetParent(card.transform, false);
+        var sliderRT = sliderGO.GetComponent<RectTransform>();
+        sliderRT.anchorMin = new Vector2(0.04f, 0.39f);
+        sliderRT.anchorMax = new Vector2(0.96f, 0.41f);
+        sliderRT.offsetMin = Vector2.zero;
+        sliderRT.offsetMax = Vector2.zero;
+        var slider = sliderGO.AddComponent<Slider>();
+        slider.interactable = false;
+        slider.minValue = 0f;
+        slider.maxValue = 1f;
+        slider.value = 0f;
+
+        CreateSliderBackground(sliderGO, slider);
+        CreateSliderFillArea(sliderGO, slider);
+
+        var handleGO = new GameObject("Handle Slide Area", typeof(RectTransform));
+        handleGO.transform.SetParent(sliderGO.transform, false);
+        var handleRT = handleGO.GetComponent<RectTransform>();
+        handleRT.anchorMin = Vector2.zero;
+        handleRT.anchorMax = Vector2.zero;
+        handleRT.offsetMin = Vector2.zero;
+        handleRT.offsetMax = Vector2.zero;
+        handleGO.SetActive(false);
+
+        puzzleCard.progressSlider = slider;
+    }
+
+    static void CreateSliderBackground(GameObject sliderGO, Slider slider)
+    {
+        var bgGO = new GameObject("Background", typeof(RectTransform));
+        bgGO.transform.SetParent(sliderGO.transform, false);
+        var bgRT = bgGO.GetComponent<RectTransform>();
+        bgRT.anchorMin = Vector2.zero;
+        bgRT.anchorMax = Vector2.one;
+        bgRT.offsetMin = Vector2.zero;
+        bgRT.offsetMax = Vector2.zero;
+        var bgImg = bgGO.AddComponent<Image>();
+        bgImg.color = new Color(0.15f, 0.15f, 0.2f, 1f);
+        bgImg.raycastTarget = false;
+    }
+
+    static void CreateSliderFillArea(GameObject sliderGO, Slider slider)
+    {
+        var fillAreaGO = new GameObject("Fill Area", typeof(RectTransform));
+        fillAreaGO.transform.SetParent(sliderGO.transform, false);
+        var fillAreaRT = fillAreaGO.GetComponent<RectTransform>();
+        fillAreaRT.anchorMin = new Vector2(0, 0.25f);
+        fillAreaRT.anchorMax = new Vector2(1, 0.75f);
+        fillAreaRT.offsetMin = Vector2.zero;
+        fillAreaRT.offsetMax = Vector2.zero;
+
+        var fillGO = new GameObject("Fill", typeof(RectTransform));
+        fillGO.transform.SetParent(fillAreaGO.transform, false);
+        var fillRT = fillGO.GetComponent<RectTransform>();
+        fillRT.anchorMin = Vector2.zero;
+        fillRT.anchorMax = Vector2.one;
+        fillRT.offsetMin = Vector2.zero;
+        fillRT.offsetMax = Vector2.zero;
+        var fillImg = fillGO.AddComponent<Image>();
+        fillImg.color = new Color(0.157f, 0.569f, 0.275f, 1f);
+        fillImg.raycastTarget = false;
+
+        slider.fillRect = fillRT;
+        slider.targetGraphic = fillImg;
+    }
+
+    static void CreateButtonRow(GameObject card, PuzzleCard puzzleCard)
+    {
+        var rowGO = new GameObject("ButtonRow", typeof(RectTransform));
+        rowGO.transform.SetParent(card.transform, false);
+        var rowRT = rowGO.GetComponent<RectTransform>();
+        rowRT.anchorMin = new Vector2(0.04f, 0.03f);
+        rowRT.anchorMax = new Vector2(0.96f, 0.35f);
+        rowRT.offsetMin = Vector2.zero;
+        rowRT.offsetMax = Vector2.zero;
+
+        var hlg = rowGO.AddComponent<HorizontalLayoutGroup>();
+        hlg.spacing = 0.01f;
+        hlg.childAlignment = TextAnchor.MiddleCenter;
+        hlg.childControlWidth = true;
+        hlg.childControlHeight = true;
+        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandHeight = true;
+
+        puzzleCard.resumeButton = CreateButton(rowGO, "Resume", false);
+        puzzleCard.newGameButton = CreateButton(rowGO, "New Game", true);
+        puzzleCard.resetButton = CreateButton(rowGO, "Reset", false);
+    }
+
+    static Button CreateButton(GameObject parent, string label, bool startActive)
+    {
+        var btnGO = new GameObject(label.Replace(" ", "") + "Button", typeof(RectTransform));
+        btnGO.transform.SetParent(parent.transform, false);
+        btnGO.SetActive(startActive);
+
+        var btnRT = btnGO.GetComponent<RectTransform>();
+        btnRT.sizeDelta = new Vector2(0f, 0.06f);
+
+        var btnImg = btnGO.AddComponent<Image>();
+        btnImg.raycastTarget = true;
+        btnImg.type = Image.Type.Sliced;
+
+        var btn = btnGO.AddComponent<Button>();
+        btn.targetGraphic = btnImg;
+
+        var textGO = new GameObject("Text", typeof(RectTransform));
+        textGO.transform.SetParent(btnGO.transform, false);
+        var textRT = textGO.GetComponent<RectTransform>();
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.offsetMin = Vector2.zero;
+        textRT.offsetMax = Vector2.zero;
+        var text = textGO.AddComponent<TextMeshProUGUI>();
+        text.text = label;
+        text.fontSize = 0.028f;
+        text.alignment = TextAlignmentOptions.Center;
+        text.color = Color.white;
+        text.fontStyle = FontStyles.Bold;
+        text.raycastTarget = false;
+
+        return btn;
+    }
+
     static GameObject CreateXROrigin()
     {
         var xrOrigin = new GameObject("XR Origin");
@@ -245,8 +516,6 @@ public class JigsawSceneSetup : EditorWindow
         return xrOrigin;
     }
 
-    /// <summary>Adds XR interactors, LineRenderer, and attach point to a controller GameObject.</summary>
-    /// <param name="controller">The controller GameObject to configure.</param>
     static void SetupController(GameObject controller)
     {
         var interactor = controller.AddComponent<UnityEngine.XR.Interaction.Toolkit.Interactors.XRDirectInteractor>();
@@ -260,9 +529,6 @@ public class JigsawSceneSetup : EditorWindow
         attachPoint.transform.SetParent(controller.transform);
     }
 
-    /// <summary>Adds LaserPointer and PieceHolder components to a controller and wires them together.</summary>
-    /// <param name="controller">The controller GameObject to configure.</param>
-    /// <param name="hand">Hand identifier ("LeftHand" or "RightHand").</param>
     static void SetupLaserPointer(GameObject controller, string hand)
     {
         var laser = controller.AddComponent<LaserPointer>();
@@ -280,7 +546,6 @@ public class JigsawSceneSetup : EditorWindow
         laser.pieceHolder = pieceHolder;
     }
 
-    /// <summary>Links cross-references between PuzzleScene GameObjects (e.g., SnapSystem needs PieceHolder references).</summary>
     static void LinkPuzzleSceneReferences(GameObject puzzleManager, GameObject wallGrid, GameObject snapSystem,
         GameObject saveSystem, GameObject completionFX, GameObject audioManager, GameObject xrOrigin)
     {
@@ -311,7 +576,6 @@ public class JigsawSceneSetup : EditorWindow
         snap.audioManager = audioManager.GetComponent<AudioManager>();
     }
 
-    /// <summary>Configures Android player settings (API level, IL2CPP, architecture) and URP quality settings.</summary>
     [MenuItem("Jigsaw/Configure Project Settings")]
     static void ConfigureProjectSettings()
     {
@@ -343,7 +607,6 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log("Project settings configured for Jigsaw VR");
     }
 
-    /// <summary>Adds the Bootstrap, MainMenu, and PuzzleScene to the build's scene list.</summary>
     static void ConfigureBuildSettings()
     {
         var scenes = new[]
@@ -382,7 +645,6 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log("Build settings configured");
     }
 
-    /// <summary>Adds the XR Device Simulator prefab to the current scene for controller-free testing.</summary>
     [MenuItem("Jigsaw/Add XR Device Simulator")]
     static void AddXRDeviceSimulator()
     {
@@ -411,7 +673,6 @@ public class JigsawSceneSetup : EditorWindow
         Debug.Log("XR Device Simulator added to scene. Configure controls via the XR Device Simulator component.");
     }
 
-    /// <summary>Opens a folder picker to select a puzzle, sets PuzzleManager statics, and enters play mode.</summary>
     [MenuItem("Jigsaw/Test Puzzle Scene")]
     static void TestPuzzleScene()
     {
@@ -434,7 +695,6 @@ public class JigsawSceneSetup : EditorWindow
         }
     }
 
-    /// <summary>Creates a directional light with soft shadows for the scene.</summary>
     static void CreateDirectionalLight()
     {
         var lightGO = new GameObject("Directional Light");
@@ -446,11 +706,17 @@ public class JigsawSceneSetup : EditorWindow
         lightGO.transform.rotation = Quaternion.Euler(50, -30, 0);
     }
 
-    /// <summary>Creates an EventSystem with InputSystemUIInputModule for UI interactions.</summary>
     static void CreateEventSystem()
     {
         var es = new GameObject("EventSystem");
         es.AddComponent<UnityEngine.EventSystems.EventSystem>();
         es.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+    }
+
+    static void AddTrackedDeviceRaycaster(GameObject canvas)
+    {
+        var tdrType = System.Type.GetType("UnityEngine.XR.Interaction.Toolkit.UI.TrackedDeviceRaycaster, Unity.XR.Interaction.Toolkit");
+        if (tdrType != null)
+            canvas.AddComponent(tdrType);
     }
 }

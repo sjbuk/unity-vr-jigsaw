@@ -86,7 +86,7 @@ public class MenuManager : MonoBehaviour
         Vector3 forward = cam.transform.forward;
         titleGO.transform.position = cam.transform.position
             + forward * menuForwardDistance
-            + Vector3.up * (menuHeight + 0.28f);
+            + Vector3.up * (menuHeight + 0.45f);
 
         titleText = titleGO.AddComponent<TextMeshProUGUI>();
         titleText.text = "Jigsaw VR";

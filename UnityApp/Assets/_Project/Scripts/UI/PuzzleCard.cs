@@ -1,3 +1,4 @@
+using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -5,6 +6,8 @@ using TMPro;
 public class PuzzleCard : MonoBehaviour
 {
     public RawImage thumbnailImage;
+    public GameObject thumbnailFrame;
+    public ModelPreview modelPreview;
     public TMP_Text nameText;
     public TMP_Text pieceCountText;
     public Slider progressSlider;
@@ -66,11 +69,29 @@ public class PuzzleCard : MonoBehaviour
         if (progressText != null)
             progressText.text = $"{(info.progress * 100f):F0}%";
 
-        LoadThumbnail(info.thumbnailPath);
+        string glbPath = Path.Combine(info.folderPath, "pieces.glb");
+        if (modelPreview != null && File.Exists(glbPath))
+        {
+            modelPreview.OnModelLoaded += OnModelPreviewLoaded;
+            _ = modelPreview.LoadModel(glbPath);
+        }
+        else
+        {
+            LoadThumbnail(info.thumbnailPath);
+        }
 
         SetupButton(resumeButton, manager.OnStartPuzzle, info, true, ResumeColors, info.hasSave);
         SetupButton(newGameButton, manager.OnStartPuzzle, info, false, NewGameColors, true);
         SetupButton(resetButton, manager.OnResetPuzzle, info, ResetColors, info.hasSave);
+    }
+
+    private void OnModelPreviewLoaded()
+    {
+        if (thumbnailImage != null)
+            thumbnailImage.gameObject.SetActive(false);
+
+        if (modelPreview != null)
+            modelPreview.OnModelLoaded -= OnModelPreviewLoaded;
     }
 
     private void LoadThumbnail(string thumbnailPath)

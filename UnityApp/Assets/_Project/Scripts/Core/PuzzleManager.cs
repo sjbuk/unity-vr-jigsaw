@@ -29,6 +29,10 @@ public class PuzzleManager : MonoBehaviour
     {
         try
         {
+            var mainCam = Camera.main;
+            if (mainCam != null && mainCam.GetComponent<FrameProfiler>() == null)
+                mainCam.gameObject.AddComponent<FrameProfiler>();
+
             DisableTeleport();
 
             if (string.IsNullOrEmpty(PuzzleFolderPath))

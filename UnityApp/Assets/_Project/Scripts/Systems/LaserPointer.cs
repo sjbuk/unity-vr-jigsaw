@@ -56,10 +56,36 @@ public class LaserPointer : MonoBehaviour
             Hand = gameObject.name.Contains("Left") ? HandSide.Left : HandSide.Right;
         }
 
+        CacheHighlightMaterial();
+
         var loaded = TryLoadInputActions();
         Debug.Log($"[LaserPointer] {gameObject.name} Awake: Hand={Hand}, actionsLoaded={loaded}, toggleAction={(toggleAction != null ? "found" : "null")}");
         if (loaded)
             BindInput();
+    }
+
+    void CacheHighlightMaterial()
+    {
+        var urpShader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (urpShader != null)
+        {
+            cachedHighlightMat = new Material(urpShader);
+            cachedHighlightMat.name = "PieceHighlight_URP";
+            var loaded = Resources.Load<Material>("PieceHighlight");
+            cachedHighlightMat.color = (loaded != null) ? loaded.color : new Color(1f, 0.84f, 0f, 0.5f);
+            return;
+        }
+
+        cachedHighlightMat = Resources.Load<Material>("PieceHighlight");
+        if (cachedHighlightMat == null)
+        {
+            var fallback = Shader.Find("Unlit/Color");
+            if (fallback != null)
+            {
+                cachedHighlightMat = new Material(fallback);
+                cachedHighlightMat.color = new Color(1f, 0.84f, 0f, 0.5f);
+            }
+        }
     }
 
     /// <summary>Attempts to load the XRI_Jigsaw input actions from Resources.</summary>
@@ -152,11 +178,16 @@ public class LaserPointer : MonoBehaviour
 
     void Update()
     {
+        double t0 = Time.realtimeSinceStartupAsDouble;
+
         if (!isActive || pieceHolder == null || pieceHolder.IsHolding)
         {
             if (lineRenderer != null) lineRenderer.enabled = false;
             if (cursorIndicator != null) cursorIndicator.SetActive(false);
             ClearHighlight();
+
+            double ms2 = (Time.realtimeSinceStartupAsDouble - t0) * 1000.0;
+            if (ms2 > 1.0) FrameProfiler.AutoLog($"  LaserPointer.Update(early) isActive={isActive}: {ms2:F2}ms");
             return;
         }
 
@@ -189,6 +220,9 @@ public class LaserPointer : MonoBehaviour
 
         ClearHighlight();
         if (cursorIndicator != null) cursorIndicator.SetActive(false);
+
+        double ms3 = (Time.realtimeSinceStartupAsDouble - t0) * 1000.0;
+        if (ms3 > 1.0) FrameProfiler.AutoLog($"  LaserPointer.Update(full): {ms3:F2}ms");
     }
 
     /// <summary>Toggles the laser pointer on or off.</summary>
@@ -206,6 +240,8 @@ public class LaserPointer : MonoBehaviour
     {
         if (Time.frameCount == lastTriggerFrame) return;
         lastTriggerFrame = Time.frameCount;
+
+        Debug.Log($"[Grab F:{Time.frameCount}] OnTriggerButton isActive={isActive} IsHolding={pieceHolder?.IsHolding} targeted={(targetedPiece != null ? targetedPiece.PieceId : -1)}");
 
         if (InGameMenuController.IsMenuActive) return;
         if (pieceHolder == null || pieceHolder.IsHolding) return;
@@ -241,6 +277,8 @@ public class LaserPointer : MonoBehaviour
     /// <summary>Initiates the fly-to-hand animation for a piece (and its cluster) and grabs on arrival.</summary>
     private void PullPiece(PieceState piece)
     {
+        double t0 = Time.realtimeSinceStartupAsDouble;
+
         isActive = false;
         ClearHighlight();
         pieceHolder.heldPiece = piece;
@@ -255,6 +293,8 @@ public class LaserPointer : MonoBehaviour
 
         foreach (var p in cluster)
             p.TransitionTo(PieceStateEnum.FlyingToHand);
+
+        Debug.Log($"[Grab F:{Time.frameCount}] PullPiece pieceId={piece.PieceId} clusterSize={cluster.Count} flyDuration={flyToHandDuration}s: {(float)(Time.realtimeSinceStartupAsDouble - t0)*1000f:F2}ms");
 
         StartCoroutine(FlyClusterRoutine(cluster, delta, () =>
         {
@@ -272,6 +312,8 @@ public class LaserPointer : MonoBehaviour
         float elapsed = 0f;
         while (elapsed < flyToHandDuration)
         {
+            double t0 = Time.realtimeSinceStartupAsDouble;
+
             float t = elapsed / flyToHandDuration;
             t = t * t * (3f - 2f * t);
             Vector3 frameDelta = delta * t;
@@ -281,6 +323,10 @@ public class LaserPointer : MonoBehaviour
                     p.transform.position = startPositions[p] + frameDelta;
             }
             elapsed += Time.deltaTime;
+
+            float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
+            Debug.Log($"[Perf F:{Time.frameCount}] FlyCluster frame clusterSize={cluster.Count}: {ms:F2}ms");
+
             yield return null;
         }
 
@@ -295,6 +341,8 @@ public class LaserPointer : MonoBehaviour
     /// <summary>Applies a highlight material to all pieces in the targeted piece's cluster.</summary>
     private void HighlightPiece(PieceState piece)
     {
+        double t0 = Time.realtimeSinceStartupAsDouble;
+
         if (targetedPiece == piece && highlightedRenderers.Count > 0) return;
 
         var cluster = (pieceHolder.snapSystem != null)
@@ -318,8 +366,6 @@ public class LaserPointer : MonoBehaviour
         ClearHighlight();
         targetedPiece = piece;
 
-        if (cachedHighlightMat == null)
-            cachedHighlightMat = Resources.Load<Material>("PieceHighlight");
         if (cachedHighlightMat == null) return;
 
         foreach (var p in cluster)
@@ -327,22 +373,31 @@ public class LaserPointer : MonoBehaviour
             var renderer = p.GetComponentInChildren<MeshRenderer>();
             if (renderer != null)
             {
-                highlightedRenderers.Add((renderer, renderer.material));
-                renderer.material = cachedHighlightMat;
+                highlightedRenderers.Add((renderer, renderer.sharedMaterial));
+                renderer.sharedMaterial = cachedHighlightMat;
             }
         }
+
+        float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
+        Debug.Log($"[Perf F:{Time.frameCount}] HighlightPiece count={highlightedRenderers.Count}: {ms:F2}ms");
     }
 
     /// <summary>Restores the original materials on all previously highlighted pieces.</summary>
     private void ClearHighlight()
     {
+        double t0 = Time.realtimeSinceStartupAsDouble;
+
         foreach (var (renderer, original) in highlightedRenderers)
         {
-            if (renderer != null)
-                renderer.material = original;
+            if (renderer != null && original != null)
+                renderer.sharedMaterial = original;
         }
+        int cleared = highlightedRenderers.Count;
         highlightedRenderers.Clear();
         targetedPiece = null;
+
+        float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
+        Debug.Log($"[Perf F:{Time.frameCount}] ClearHighlight n={cleared}: {ms:F2}ms");
     }
 
     public bool TryGetOriginalMaterial(MeshRenderer renderer, out Material original)

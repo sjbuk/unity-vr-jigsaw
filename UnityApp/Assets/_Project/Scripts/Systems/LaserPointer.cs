@@ -41,9 +41,6 @@ public class LaserPointer : MonoBehaviour
 
     private PieceState targetedPiece;
     public PieceState TargetedPiece => targetedPiece;
-    private readonly List<MeshRenderer> highlightedRenderers = new List<MeshRenderer>();
-    private MaterialPropertyBlock highlightPropertyBlock;
-    private Color highlightColor = new Color(1f, 0.84f, 0f, 1f);
 
     private int lastRaycastFrame = -1;
     private RaycastHit lastRaycastHit;
@@ -60,8 +57,6 @@ public class LaserPointer : MonoBehaviour
         {
             Hand = gameObject.name.Contains("Left") ? HandSide.Left : HandSide.Right;
         }
-
-        highlightPropertyBlock = new MaterialPropertyBlock();
 
         var loaded = TryLoadInputActions();
         Debug.Log($"[LaserPointer] {gameObject.name} Awake: Hand={Hand}, actionsLoaded={loaded}, toggleAction={(toggleAction != null ? "found" : "null")}");
@@ -180,7 +175,6 @@ public class LaserPointer : MonoBehaviour
             bool tooClose = Vector3.Distance(controllerTransform.position, hit.collider.transform.position) < minLaserDistance;
             if (piece != null && piece.IsInteractable() && !tooClose)
             {
-                HighlightPiece(piece);
                 targetedPiece = piece;
                 if (cursorIndicator != null)
                 {
@@ -195,7 +189,7 @@ public class LaserPointer : MonoBehaviour
             lineRenderer.SetPosition(1, controllerTransform.position + controllerTransform.forward * maxDistance);
         }
 
-        ClearHighlight();
+        targetedPiece = null;
         if (cursorIndicator != null) cursorIndicator.SetActive(false);
     }
 
@@ -313,42 +307,4 @@ public class LaserPointer : MonoBehaviour
     }
 
     /// <summary>Applies highlight color via MaterialPropertyBlock (no material swap).</summary>
-    private void HighlightPiece(PieceState piece)
-    {
-        if (targetedPiece == piece && highlightedRenderers.Count > 0) return;
-
-        if (targetedPiece != piece)
-        {
-            ClearHighlight();
-            targetedPiece = piece;
-
-            var cluster = (pieceHolder.snapSystem != null)
-                ? pieceHolder.snapSystem.GetClusterPieceStates(piece.ClusterId)
-                : new List<PieceState> { piece };
-
-            foreach (var p in cluster)
-            {
-                var renderer = p.GetComponentInChildren<MeshRenderer>();
-                if (renderer != null)
-                {
-                    highlightedRenderers.Add(renderer);
-                    highlightPropertyBlock.SetColor("_Color", highlightColor);
-                    renderer.SetPropertyBlock(highlightPropertyBlock);
-                }
-            }
-        }
-    }
-
-    /// <summary>Clears highlight by resetting MaterialPropertyBlock.</summary>
-    private void ClearHighlight()
-    {
-        foreach (var renderer in highlightedRenderers)
-        {
-            if (renderer != null)
-                renderer.SetPropertyBlock(null);
-        }
-        highlightedRenderers.Clear();
-        targetedPiece = null;
-    }
-
 }

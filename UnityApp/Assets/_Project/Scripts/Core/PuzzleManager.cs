@@ -243,11 +243,16 @@ public class PuzzleManager : MonoBehaviour
 
     void EnableGPUInstancingOnAllMaterials(Transform root)
     {
+        var uniqueMaterials = new System.Collections.Generic.HashSet<Material>();
         foreach (var renderer in root.GetComponentsInChildren<Renderer>())
         {
             if (renderer.sharedMaterial != null)
+            {
                 renderer.sharedMaterial.enableInstancing = true;
+                uniqueMaterials.Add(renderer.sharedMaterial);
+            }
         }
+        Debug.Log($"[PuzzleManager] Enabled GPU instancing on {uniqueMaterials.Count} unique materials");
     }
 
     private int ParsePieceId(string name)

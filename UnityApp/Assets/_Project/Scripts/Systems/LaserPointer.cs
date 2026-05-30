@@ -158,8 +158,7 @@ public class LaserPointer : MonoBehaviour
         {
             if (lineRenderer != null) lineRenderer.enabled = false;
             if (cursorIndicator != null) cursorIndicator.SetActive(false);
-            ClearHighlight();
-
+            
             return;
         }
 
@@ -231,8 +230,7 @@ public class LaserPointer : MonoBehaviour
         }
 
         isActive = false;
-        ClearHighlight();
-    }
+            }
 
     /// <summary>Called when trigger is released. Only releases if actually holding a piece.</summary>
     public void OnTriggerReleased()
@@ -248,8 +246,7 @@ public class LaserPointer : MonoBehaviour
         double t0 = Time.realtimeSinceStartupAsDouble;
 
         isActive = false;
-        ClearHighlight();
-        pieceHolder.heldPiece = piece;
+                pieceHolder.heldPiece = piece;
 
         var cluster = (pieceHolder.snapSystem != null)
             ? pieceHolder.snapSystem.GetClusterPieceStates(piece.ClusterId)

@@ -839,6 +839,10 @@ MonoBehaviour:
   cardWorldScale: 1
   menuHeight: 0
   menuForwardDistance: 1.5
+  activeController: 0
+  hoverHighlightColor: {r: 0.2, g: 0.7, b: 1, a: 1}
+  hoverFadeSpeed: 6
+  apiUrl: http://10.111.1.120:8000
 --- !u!4 &1905922754
 Transform:
   m_ObjectHideFlags: 0

@@ -15,8 +15,11 @@ public class PuzzleCard : MonoBehaviour
     public Button resumeButton;
     public Button newGameButton;
     public Button resetButton;
+    public Button downloadButton;
+    public TMP_Text downloadProgressText;
 
     private PuzzleInfo puzzleInfo;
+    public PuzzleInfo PuzzleInfo => puzzleInfo;
     private MenuManager menuManager;
 
     private static readonly ColorBlock ResumeColors = new ColorBlock
@@ -52,37 +55,116 @@ public class PuzzleCard : MonoBehaviour
         fadeDuration = 0.1f
     };
 
+    private static readonly ColorBlock DownloadColors = new ColorBlock
+    {
+        normalColor = new Color(0.824f, 0.498f, 0.129f),
+        highlightedColor = new Color(0.961f, 0.647f, 0.259f),
+        pressedColor = new Color(0.624f, 0.376f, 0.078f),
+        selectedColor = new Color(0.824f, 0.498f, 0.129f),
+        disabledColor = new Color(0.3f, 0.3f, 0.3f, 0.5f),
+        colorMultiplier = 1f,
+        fadeDuration = 0.1f
+    };
+
     public void Initialize(PuzzleInfo info, MenuManager manager)
     {
         puzzleInfo = info;
         menuManager = manager;
 
+        string displayName = string.IsNullOrEmpty(info.displayName) ? info.name : info.displayName;
+
         if (nameText != null)
-            nameText.text = info.name;
+            nameText.text = displayName;
 
         if (pieceCountText != null)
             pieceCountText.text = $"{info.pieceCount} pieces";
 
+        bool isRemoteUndownloaded = info.isRemote && !info.isDownloaded;
+
         if (progressSlider != null)
-            progressSlider.value = info.progress;
+            progressSlider.gameObject.SetActive(!isRemoteUndownloaded);
 
         if (progressText != null)
-            progressText.text = $"{(info.progress * 100f):F0}%";
+            progressText.gameObject.SetActive(!isRemoteUndownloaded);
 
         string glbPath = Path.Combine(info.folderPath, "pieces.glb");
-        if (modelPreview != null && File.Exists(glbPath))
+        if (!isRemoteUndownloaded && modelPreview != null && File.Exists(glbPath))
         {
             modelPreview.OnModelLoaded += OnModelPreviewLoaded;
             _ = modelPreview.LoadModel(glbPath);
         }
-        else
+        else if (!isRemoteUndownloaded)
         {
             LoadThumbnail(info.thumbnailPath);
         }
+        else
+        {
+            if (thumbnailImage != null)
+                thumbnailImage.color = new Color(0.15f, 0.15f, 0.2f, 1f);
+        }
 
-        SetupButton(resumeButton, manager.OnStartPuzzle, info, true, ResumeColors, info.hasSave);
-        SetupButton(newGameButton, manager.OnStartPuzzle, info, false, NewGameColors, true);
-        SetupButton(resetButton, manager.OnResetPuzzle, info, ResetColors, info.hasSave);
+        bool isDownloaded = !isRemoteUndownloaded;
+
+        SetupButton(resumeButton, manager.OnStartPuzzle, info, true, ResumeColors, isDownloaded && info.hasSave);
+        SetupButton(newGameButton, manager.OnStartPuzzle, info, false, NewGameColors, isDownloaded);
+        SetupButton(resetButton, manager.OnResetPuzzle, info, ResetColors, isDownloaded && info.hasSave);
+
+        if (downloadButton != null)
+        {
+            downloadButton.gameObject.SetActive(!isDownloaded);
+            downloadButton.colors = DownloadColors;
+            downloadButton.onClick.RemoveAllListeners();
+            downloadButton.onClick.AddListener(() => manager.DownloadAndStartPuzzle(info));
+
+            if (downloadProgressText != null)
+                downloadProgressText.gameObject.SetActive(false);
+        }
+    }
+
+    public void UpdateDownloadProgress(float progress)
+    {
+        if (progress < 0f)
+        {
+            if (downloadButton != null)
+            {
+                var label = downloadButton.GetComponentInChildren<TMP_Text>();
+                if (label != null)
+                    label.text = "Download Failed";
+            }
+
+            if (downloadProgressText != null)
+            {
+                downloadProgressText.gameObject.SetActive(true);
+                downloadProgressText.text = "Failed";
+            }
+
+            return;
+        }
+
+        if (downloadProgressText != null)
+        {
+            downloadProgressText.gameObject.SetActive(progress > 0f && progress < 1f);
+            downloadProgressText.text = $"{(progress * 100f):F0}%";
+        }
+
+        if (downloadButton != null)
+        {
+            var label = downloadButton.GetComponentInChildren<TMP_Text>();
+            if (label != null)
+            {
+                if (progress >= 1f)
+                    label.text = "Done";
+                else if (progress > 0f)
+                    label.text = $"Downloading {(progress * 100f):F0}%";
+                else
+                    label.text = "Download";
+            }
+        }
+
+        if (progress >= 1f)
+        {
+            downloadButton.gameObject.SetActive(false);
+        }
     }
 
     private void OnModelPreviewLoaded()

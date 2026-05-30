@@ -65,19 +65,7 @@ public class PieceState : MonoBehaviour
     /// <summary>Detaches the piece from the controller, leaving it floating.</summary>
     public void DetachFromHand()
     {
-        double t0 = Time.realtimeSinceStartupAsDouble;
-
-        Transform root = PuzzleManager.PuzzleRootTransform;
-        if (root == null)
-        {
-            var go = GameObject.Find("PuzzleRoot");
-            if (go != null) root = go.transform;
-        }
-        transform.SetParent(root);
         TransitionTo(PieceStateEnum.Floating);
-
-        float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
-        Debug.Log($"[Perf F:{Time.frameCount}] DetachFromHand: {ms:F2}ms");
     }
 
     /// <summary>Flies the piece to a target position over a duration using smooth interpolation.</summary>

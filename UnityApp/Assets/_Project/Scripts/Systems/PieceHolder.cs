@@ -34,10 +34,25 @@ public class PieceHolder : MonoBehaviour
     /// <summary>Whether this holder is currently holding a piece.</summary>
     public bool IsHolding => heldPiece != null;
 
+    private Vector3 pieceWorldOffset;  // Offset from attachPoint to piece center
+
     void Start()
     {
         if (snapSystem == null)
             snapSystem = FindObjectOfType<SnapSystem>();
+    }
+
+    void LateUpdate()
+    {
+        if (IsHolding && heldPiece != null)
+        {
+            var cluster = (snapSystem != null) ? snapSystem.GetClusterPieceStates(heldPiece.ClusterId) : new List<PieceState> { heldPiece };
+            Vector3 targetPos = attachPoint.position + pieceWorldOffset;
+            Vector3 delta = targetPos - heldPiece.transform.position;
+
+            foreach (var p in cluster)
+                p.transform.position += delta;
+        }
     }
 
     /// <summary>Grabs a piece, attaches it to the holder, and deactivates the laser.</summary>
@@ -62,32 +77,23 @@ public class PieceHolder : MonoBehaviour
             p.TransitionTo(PieceStateEnum.InHand);
         }
 
-        if (keepWorldPosition)
-        {
-            foreach (var p in cluster)
-                p.transform.SetParent(attachPoint, worldPositionStays: true);
-        }
-        else
+        if (!keepWorldPosition)
         {
             float zOffset = GetPieceHoldLocalZOffset(piece);
-            Vector3 primaryTargetWorldPos = attachPoint.TransformPoint(new Vector3(0, 0, zOffset));
-            Vector3 delta = primaryTargetWorldPos - piece.transform.position;
-
+            Vector3 targetWorldPos = attachPoint.TransformPoint(new Vector3(0, 0, zOffset));
+            Vector3 delta = targetWorldPos - piece.transform.position;
             foreach (var p in cluster)
                 p.transform.position += delta;
-
-            foreach (var p in cluster)
-                p.transform.SetParent(attachPoint, worldPositionStays: true);
-
-            piece.transform.localPosition = new Vector3(0, 0, zOffset);
         }
+
+        pieceWorldOffset = piece.transform.position - attachPoint.position;
 
         if (laserPointer != null)
             laserPointer.isActive = false;
 
         float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
         if (ms > 0.1f)
-            Debug.Log($"[Perf F:{Time.frameCount}] GrabPiece keepWP={keepWorldPosition} clusterSize={cluster.Count}: {ms:F2}ms");
+            Debug.Log($"[Perf F:{Time.frameCount}] GrabPiece clusterSize={cluster.Count}: {ms:F2}ms");
     }
 
     /// <summary>Computes the local Z offset so the piece's closest face is exactly faceGrabDistance from the attach point.</summary>

@@ -25,6 +25,8 @@ public class PieceState : MonoBehaviour
     public int WallSlotIndex = -1;
     public int ClusterId;
     public Vector3 LocalCentroid;
+    public Vector3 OutwardDirection;
+    public float WallYRotationOffset;
     public GameObject LeftHandController;
     public GameObject RightHandController;
 

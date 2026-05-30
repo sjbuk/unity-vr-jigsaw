@@ -156,7 +156,8 @@ public class PieceHolder : MonoBehaviour
 
         Vector3 targetPos = wallGrid.SlotPositions[nearestSlot];
         Vector3 playerPos = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
-        Quaternion targetRot = wallGrid.GetSlotRotation(nearestSlot, playerPos);
+        Quaternion baseFacing = wallGrid.GetSlotRotation(nearestSlot, playerPos);
+        Quaternion targetRot = baseFacing * Quaternion.Euler(0, heldPiece.WallYRotationOffset, 0);
 
         var cluster = (snapSystem != null) ? snapSystem.GetClusterPieceStates(heldPiece.ClusterId) : new List<PieceState> { heldPiece };
 

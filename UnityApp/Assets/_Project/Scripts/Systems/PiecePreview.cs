@@ -52,9 +52,18 @@ public class PiecePreview : MonoBehaviour
         Debug.Log($"[PiecePreview] Awake {gameObject.name} Hand={Hand} laserPtr={laserPointer != null} ctrlXform={controllerTransform != null}");
 
         CacheTurnProviders();
-
+        CreatePreviewContainer();
         TryLoadInputActions();
         BindInput();
+    }
+
+    void CreatePreviewContainer()
+    {
+        previewContainer = new GameObject("PiecePreview");
+        previewContainer.transform.SetParent(controllerTransform, false);
+        previewContainer.transform.localPosition = previewOffset;
+        previewContainer.transform.localRotation = Quaternion.identity;
+        previewContainer.SetActive(false);
     }
 
     static void CacheTurnProviders()
@@ -73,9 +82,7 @@ public class PiecePreview : MonoBehaviour
         {
             var moveGo = GameObject.Find("Move");
             if (moveGo != null)
-            {
                 s_continuousMove = moveGo.GetComponent<ContinuousMoveProvider>();
-            }
         }
     }
 
@@ -137,6 +144,9 @@ public class PiecePreview : MonoBehaviour
             thumbstickAction.performed -= OnThumbstick;
             thumbstickAction.canceled -= OnThumbstickCanceled;
         }
+
+        if (previewContainer != null)
+            Destroy(previewContainer);
     }
 
     void OnThumbstick(InputAction.CallbackContext ctx) => thumbstickValue = ctx.ReadValue<Vector2>();
@@ -144,9 +154,11 @@ public class PiecePreview : MonoBehaviour
 
     void LateUpdate()
     {
-        if (laserPointer == null || controllerTransform == null) return;
+        double t0 = Time.realtimeSinceStartupAsDouble;
 
-        if (!laserPointer.isActive) { HidePreview(); return; }
+        if (laserPointer == null || controllerTransform == null || previewContainer == null) return;
+
+        if (!laserPointer.isActive) { HidePreview(); TrackMS("Preview: HidePreview", t0); return; }
 
         PieceState targeted = laserPointer.TargetedPiece;
         bool shouldShow = ShouldShowPreview(targeted);
@@ -162,6 +174,18 @@ public class PiecePreview : MonoBehaviour
         {
             if (previewActive)
                 HidePreview();
+        }
+
+        TrackMS("Preview: LateUpdate", t0);
+    }
+
+    void TrackMS(string label, double start)
+    {
+        float ms = (float)(Time.realtimeSinceStartupAsDouble - start) * 1000f;
+        if (ms > 1f)
+        {
+            Debug.Log($"[Perf F:{Time.frameCount}] {label}: {ms:F2}ms");
+            FrameProfiler.AutoLog($"  {label}: {ms:F2}ms");
         }
     }
 
@@ -183,19 +207,37 @@ public class PiecePreview : MonoBehaviour
 
     void ShowPreview(PieceState piece)
     {
-        Debug.Log($"[PiecePreview] ShowPreview {gameObject.name} piece={piece.PieceId} renderers={piece.GetComponentsInChildren<MeshRenderer>().Length}");
+        double t0 = Time.realtimeSinceStartupAsDouble;
 
-        DestroyPreviewContainer();
-
+        bool samePiece = previewedPiece == piece;
         previewedPiece = piece;
-        previewContainer = new GameObject("PiecePreview");
-        previewContainer.transform.SetParent(controllerTransform, false);
-        previewContainer.transform.localPosition = previewOffset;
-        previewContainer.transform.localRotation = Quaternion.identity;
 
-        accumulatedYaw = 0f;
-        accumulatedPitch = 0f;
+        if (!samePiece)
+        {
+            ClearPreviewChildren();
+            BuildPreviewMeshes(piece);
+        }
 
+        Quaternion pieceLocalRot = Quaternion.Inverse(controllerTransform.rotation) * piece.transform.rotation;
+        Vector3 euler = pieceLocalRot.eulerAngles;
+        accumulatedYaw = euler.y;
+        accumulatedPitch = euler.x;
+
+        if (!previewActive)
+        {
+            s_activePreviews++;
+            if (s_activePreviews == 1)
+                SetTurnEnabled(false);
+        }
+
+        previewContainer.SetActive(true);
+        previewActive = true;
+
+        Debug.Log($"[Perf F:{Time.frameCount}] Preview.ShowPreview samePiece={samePiece} activePreviews={s_activePreviews}: {(float)(Time.realtimeSinceStartupAsDouble - t0)*1000f:F2}ms");
+    }
+
+    void BuildPreviewMeshes(PieceState piece)
+    {
         var renderers = piece.GetComponentsInChildren<MeshRenderer>();
         Bounds combinedBounds = default;
         bool hasBounds = false;
@@ -234,21 +276,17 @@ public class PiecePreview : MonoBehaviour
                 previewContainer.transform.localScale = Vector3.one * scale;
             }
         }
+    }
 
-        Quaternion pieceLocalRot = Quaternion.Inverse(controllerTransform.rotation) * piece.transform.rotation;
-        Vector3 euler = pieceLocalRot.eulerAngles;
-        accumulatedYaw = euler.y;
-        accumulatedPitch = euler.x;
-        previewContainer.transform.localRotation = Quaternion.Euler(accumulatedPitch, accumulatedYaw, 0f);
-
-        if (!previewActive)
+    void ClearPreviewChildren()
+    {
+        if (previewContainer == null) return;
+        for (int i = previewContainer.transform.childCount - 1; i >= 0; i--)
         {
-            s_activePreviews++;
-            if (s_activePreviews == 1)
-                SetTurnEnabled(false);
+            var child = previewContainer.transform.GetChild(i);
+            child.SetParent(null);
+            Destroy(child.gameObject);
         }
-
-        previewActive = true;
     }
 
     void UpdatePreviewTransform()
@@ -268,8 +306,8 @@ public class PiecePreview : MonoBehaviour
 
     void HidePreview()
     {
-        DestroyPreviewContainer();
-        previewedPiece = null;
+        bool wasActive = previewActive;
+        double t0 = Time.realtimeSinceStartupAsDouble;
 
         if (previewActive)
         {
@@ -278,24 +316,24 @@ public class PiecePreview : MonoBehaviour
                 SetTurnEnabled(true);
         }
 
+        if (previewContainer != null)
+            previewContainer.SetActive(false);
+
         previewActive = false;
         accumulatedYaw = 0f;
         accumulatedPitch = 0f;
+
+        if (wasActive)
+            Debug.Log($"[Perf F:{Time.frameCount}] Preview.HidePreview activePreviews={s_activePreviews}: {(float)(Time.realtimeSinceStartupAsDouble - t0)*1000f:F2}ms");
     }
 
     static void SetTurnEnabled(bool enabled)
     {
+        double t0 = Time.realtimeSinceStartupAsDouble;
         if (s_snapTurn != null) s_snapTurn.enabled = enabled;
         if (s_continuousTurn != null) s_continuousTurn.enabled = enabled;
         if (s_continuousMove != null) s_continuousMove.enabled = enabled;
-    }
-
-    void DestroyPreviewContainer()
-    {
-        if (previewContainer != null)
-        {
-            Destroy(previewContainer);
-            previewContainer = null;
-        }
+        float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
+        Debug.Log($"[Perf F:{Time.frameCount}] Preview.SetTurnEnabled enabled={enabled}: {ms:F2}ms");
     }
 }

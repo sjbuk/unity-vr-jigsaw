@@ -34,7 +34,8 @@ public class PieceHolder : MonoBehaviour
     /// <summary>Whether this holder is currently holding a piece.</summary>
     public bool IsHolding => heldPiece != null;
 
-    private Vector3 pieceWorldOffset;  // Offset from attachPoint to piece center
+    private Vector3 pieceLocalOffset;      // Offset from attachPoint to piece (in local space)
+    private Quaternion pieceLocalRotation;  // Piece rotation relative to hand
 
     void Start()
     {
@@ -47,11 +48,15 @@ public class PieceHolder : MonoBehaviour
         if (IsHolding && heldPiece != null)
         {
             var cluster = (snapSystem != null) ? snapSystem.GetClusterPieceStates(heldPiece.ClusterId) : new List<PieceState> { heldPiece };
-            Vector3 targetPos = attachPoint.position + pieceWorldOffset;
-            Vector3 delta = targetPos - heldPiece.transform.position;
+
+            Vector3 targetPos = attachPoint.TransformPoint(pieceLocalOffset);
+            Quaternion targetRot = attachPoint.rotation * pieceLocalRotation;
 
             foreach (var p in cluster)
-                p.transform.position += delta;
+            {
+                p.transform.position = targetPos;
+                p.transform.rotation = targetRot;
+            }
         }
     }
 
@@ -86,7 +91,8 @@ public class PieceHolder : MonoBehaviour
                 p.transform.position += delta;
         }
 
-        pieceWorldOffset = piece.transform.position - attachPoint.position;
+        pieceLocalOffset = attachPoint.InverseTransformPoint(piece.transform.position);
+        pieceLocalRotation = Quaternion.Inverse(attachPoint.rotation) * piece.transform.rotation;
 
         if (laserPointer != null)
             laserPointer.isActive = false;

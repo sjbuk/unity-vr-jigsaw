@@ -94,6 +94,24 @@
           "processors": "",
           "interactions": "",
           "initialStateCheck": false
+        },
+        {
+          "name": "LeftThumbstick",
+          "type": "Value",
+          "id": "a1000000-0000-0000-0000-000000000011",
+          "expectedControlType": "Vector2",
+          "processors": "",
+          "interactions": "",
+          "initialStateCheck": false
+        },
+        {
+          "name": "RightThumbstick",
+          "type": "Value",
+          "id": "a1000000-0000-0000-0000-000000000012",
+          "expectedControlType": "Vector2",
+          "processors": "",
+          "interactions": "",
+          "initialStateCheck": false
         }
       ],
       "bindings": [
@@ -204,6 +222,28 @@
           "processors": "",
           "groups": "XR Controller",
           "action": "LeftMenuButton",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "b1000000-0000-0000-0000-000000000011",
+          "path": "<XRController>{LeftHand}/thumbstick",
+          "interactions": "",
+          "processors": "",
+          "groups": "XR Controller",
+          "action": "LeftThumbstick",
+          "isComposite": false,
+          "isPartOfComposite": false
+        },
+        {
+          "name": "",
+          "id": "b1000000-0000-0000-0000-000000000012",
+          "path": "<XRController>{RightHand}/thumbstick",
+          "interactions": "",
+          "processors": "",
+          "groups": "XR Controller",
+          "action": "RightThumbstick",
           "isComposite": false,
           "isPartOfComposite": false
         }

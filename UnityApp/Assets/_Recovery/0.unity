@@ -313,7 +313,7 @@ MonoBehaviour:
     m_Bits: 4294967295
   isActive: 0
   triggerDebounceDuration: 0.5
---- !u!114 &236412536
+--- !u!114 &236412540
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -322,16 +322,13 @@ MonoBehaviour:
   m_GameObject: {fileID: 236412528}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 51d0559262cc34141b08d17968f90822, type: 3}
+  m_Script: {fileID: 11500000, guid: f9e8d7c6b5a04938a2b1c0d9e8f7a6b5, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::PiecePreview
-  controllerTransform: {fileID: 236412529}
-  laserPointer: {fileID: 236412535}
-  Hand: 0
-  previewTargetSize: 0.2
-  previewTriggerDistance: 2
-  previewOffset: {x: 0, y: 0.06, z: 0.04}
-  rotationSpeed: 120
+  m_EditorClassIdentifier: Assembly-CSharp::ModelPreview
+  rotationSpeed: 20
+  modelLocalOffset: {x: 0, y: 0, z: 0}
+  targetSize: {x: 0.4, y: 0.2}
+  modelScale: 1
 --- !u!1 &695819051
 GameObject:
   m_ObjectHideFlags: 0
@@ -687,7 +684,7 @@ PrefabInstance:
       addedObject: {fileID: 1074190093}
     - targetCorrespondingSourceObject: {fileID: 202364687, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
       insertIndex: -1
-      addedObject: {fileID: 1074190095}
+      addedObject: {fileID: 1074190099}
     - targetCorrespondingSourceObject: {fileID: 1670256624, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
       insertIndex: -1
       addedObject: {fileID: 236412535}
@@ -696,7 +693,7 @@ PrefabInstance:
       addedObject: {fileID: 236412534}
     - targetCorrespondingSourceObject: {fileID: 1670256624, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
       insertIndex: -1
-      addedObject: {fileID: 236412536}
+      addedObject: {fileID: 236412540}
   m_SourcePrefab: {fileID: 100100000, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
 --- !u!20 &934126380 stripped
 Camera:
@@ -1011,7 +1008,7 @@ MonoBehaviour:
     m_Bits: 4294967295
   isActive: 0
   triggerDebounceDuration: 0.5
---- !u!114 &1074190095
+--- !u!114 &1074190099
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -1020,16 +1017,13 @@ MonoBehaviour:
   m_GameObject: {fileID: 1074190087}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 51d0559262cc34141b08d17968f90822, type: 3}
+  m_Script: {fileID: 11500000, guid: f9e8d7c6b5a04938a2b1c0d9e8f7a6b5, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::PiecePreview
-  controllerTransform: {fileID: 1074190092}
-  laserPointer: {fileID: 1074190094}
-  Hand: 0
-  previewTargetSize: 0.2
-  previewTriggerDistance: 2
-  previewOffset: {x: 0, y: 0.06, z: 0.04}
-  rotationSpeed: 120
+  m_EditorClassIdentifier: Assembly-CSharp::ModelPreview
+  rotationSpeed: 20
+  modelLocalOffset: {x: 0, y: 0, z: 0}
+  targetSize: {x: 0.4, y: 0.2}
+  modelScale: 1
 --- !u!1 &1183792317
 GameObject:
   m_ObjectHideFlags: 0
@@ -1355,7 +1349,6 @@ MonoBehaviour:
   snapRadius: 0.5
   audioManager: {fileID: 1796097603}
   snapParticles: {fileID: 0}
-  enableDebugLogging: 0
 --- !u!4 &1259683429
 Transform:
   m_ObjectHideFlags: 0

@@ -7,6 +7,8 @@ using System;
 [System.Serializable]
 public class CheckpointData
 {
+    /// <summary>The display name of the puzzle.</summary>
+    public string name;
     /// <summary>The source model file path or identifier.</summary>
     public string source;
     /// <summary>Total number of pieces in the puzzle.</summary>

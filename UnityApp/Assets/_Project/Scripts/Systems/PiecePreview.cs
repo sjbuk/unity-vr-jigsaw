@@ -183,10 +183,7 @@ public class PiecePreview : MonoBehaviour
     {
         float ms = (float)(Time.realtimeSinceStartupAsDouble - start) * 1000f;
         if (ms > 1f)
-        {
             Debug.Log($"[Perf F:{Time.frameCount}] {label}: {ms:F2}ms");
-            FrameProfiler.AutoLog($"  {label}: {ms:F2}ms");
-        }
     }
 
     bool ShouldShowPreview(PieceState piece)

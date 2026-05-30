@@ -58,7 +58,7 @@ public class PieceHolder : MonoBehaviour
         {
             if (wallGrid != null && p.WallSlotIndex >= 0)
                 wallGrid.VacateSlot(p.WallSlotIndex);
-            
+
             p.TransitionTo(PieceStateEnum.InHand);
         }
 
@@ -86,7 +86,8 @@ public class PieceHolder : MonoBehaviour
             laserPointer.isActive = false;
 
         float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
-        Debug.Log($"[Perf F:{Time.frameCount}] GrabPiece keepWP={keepWorldPosition} clusterSize={cluster.Count}: {ms:F2}ms");
+        if (ms > 0.1f)
+            Debug.Log($"[Perf F:{Time.frameCount}] GrabPiece keepWP={keepWorldPosition} clusterSize={cluster.Count}: {ms:F2}ms");
     }
 
     /// <summary>Computes the local Z offset so the piece's closest face is exactly faceGrabDistance from the attach point.</summary>

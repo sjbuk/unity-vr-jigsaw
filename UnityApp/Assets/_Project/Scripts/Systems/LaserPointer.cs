@@ -43,6 +43,11 @@ public class LaserPointer : MonoBehaviour
     public PieceState TargetedPiece => targetedPiece;
     private Material cachedHighlightMat;
     private readonly List<(MeshRenderer renderer, Material original)> highlightedRenderers = new List<(MeshRenderer, Material)>();
+    private readonly List<(MeshRenderer renderer, Material original)> pendingClearHighlight = new List<(MeshRenderer, Material)>();
+
+    private int lastRaycastFrame = -1;
+    private RaycastHit lastRaycastHit;
+    private bool lastRaycastHitValid;
 
     private InputActionAsset inputActions;
     private InputActionMap jigsawMap;
@@ -178,7 +183,7 @@ public class LaserPointer : MonoBehaviour
 
     void Update()
     {
-        double t0 = Time.realtimeSinceStartupAsDouble;
+        ProcessDeferredClearHighlight();
 
         if (!isActive || pieceHolder == null || pieceHolder.IsHolding)
         {
@@ -186,8 +191,6 @@ public class LaserPointer : MonoBehaviour
             if (cursorIndicator != null) cursorIndicator.SetActive(false);
             ClearHighlight();
 
-            double ms2 = (Time.realtimeSinceStartupAsDouble - t0) * 1000.0;
-            if (ms2 > 1.0) FrameProfiler.AutoLog($"  LaserPointer.Update(early) isActive={isActive}: {ms2:F2}ms");
             return;
         }
 
@@ -220,9 +223,6 @@ public class LaserPointer : MonoBehaviour
 
         ClearHighlight();
         if (cursorIndicator != null) cursorIndicator.SetActive(false);
-
-        double ms3 = (Time.realtimeSinceStartupAsDouble - t0) * 1000.0;
-        if (ms3 > 1.0) FrameProfiler.AutoLog($"  LaserPointer.Update(full): {ms3:F2}ms");
     }
 
     /// <summary>Toggles the laser pointer on or off.</summary>
@@ -382,22 +382,35 @@ public class LaserPointer : MonoBehaviour
         Debug.Log($"[Perf F:{Time.frameCount}] HighlightPiece count={highlightedRenderers.Count}: {ms:F2}ms");
     }
 
-    /// <summary>Restores the original materials on all previously highlighted pieces.</summary>
+    /// <summary>Defers material restoration to next frame to avoid render pipeline spikes.</summary>
     private void ClearHighlight()
     {
+        if (highlightedRenderers.Count == 0) return;
+
+        pendingClearHighlight.Clear();
+        pendingClearHighlight.AddRange(highlightedRenderers);
+        highlightedRenderers.Clear();
+        targetedPiece = null;
+    }
+
+    private void ProcessDeferredClearHighlight()
+    {
+        if (pendingClearHighlight.Count == 0) return;
+
         double t0 = Time.realtimeSinceStartupAsDouble;
 
-        foreach (var (renderer, original) in highlightedRenderers)
+        foreach (var (renderer, original) in pendingClearHighlight)
         {
             if (renderer != null && original != null)
                 renderer.sharedMaterial = original;
         }
-        int cleared = highlightedRenderers.Count;
-        highlightedRenderers.Clear();
-        targetedPiece = null;
+
+        int cleared = pendingClearHighlight.Count;
+        pendingClearHighlight.Clear();
 
         float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
-        Debug.Log($"[Perf F:{Time.frameCount}] ClearHighlight n={cleared}: {ms:F2}ms");
+        if (ms > 0.1f)
+            Debug.Log($"[Perf F:{Time.frameCount}] ClearHighlight (deferred) n={cleared}: {ms:F2}ms");
     }
 
     public bool TryGetOriginalMaterial(MeshRenderer renderer, out Material original)

@@ -99,9 +99,6 @@ public class SnapSystem : MonoBehaviour
         if (pieceRegistry == null || adjacencyMap == null || clusters == null) return;
 
         TrySnapAny();
-
-        double ms2 = (Time.realtimeSinceStartupAsDouble - t0) * 1000.0;
-        if (ms2 > 1.0) FrameProfiler.AutoLog($"  SnapSystem.Update: {ms2:F2}ms");
     }
 
     private void DebugUpdate()

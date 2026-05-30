@@ -28,10 +28,6 @@
     />
   </div>
 
-  <div class="field checkbox">
-    <input id="reassign" type="checkbox" bind:checked={params.reassign_orphans} />
-    <label for="reassign">Reassign Orphans</label>
-  </div>
 </div>
 
 <style>
@@ -73,19 +69,5 @@
   }
   .field input[type='number'] {
     width: 100%;
-  }
-  .field.checkbox {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .field.checkbox input[type='checkbox'] {
-    accent-color: #4f8cff;
-    width: 1rem;
-    height: 1rem;
-  }
-  .field.checkbox label {
-    font-size: 0.8rem;
-    color: #ccc;
   }
 </style>

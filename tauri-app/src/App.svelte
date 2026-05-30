@@ -1,34 +1,57 @@
+
 <script lang="ts">
   import FilePicker from './lib/FilePicker.svelte';
   import ParamForm from './lib/ParamForm.svelte';
   import PieceViewer from './lib/PieceViewer.svelte';
   import PieceList from './lib/PieceList.svelte';
-  import { startSlice, progressStream, listJobs, getJob, updateJobMeta } from './lib/api';
+  import { uploadModel, sliceJob, reassignOrphans, progressStream, listJobs, getJob, updateJobMeta } from './lib/api';
   import type { SliceParams, SliceResult, ViewMode, JobSummary, CameraOrientation } from './types';
   import { DEFAULT_PARAMS } from './types';
 
   let activeTab: 'new' | 'previous' = $state('new');
   let file: File | null = $state(null);
   let params: SliceParams = $state({ ...DEFAULT_PARAMS });
-  let slicing = $state(false);
+  let processing = $state(false);
   let progress = $state('');
   let error = $state('');
   let result: SliceResult | null = $state(null);
   let jobId = $state('');
-  let viewMode: ViewMode = $state('split');
-  let showTexture = $state(false);
+  let processed = $state(false);
+  let viewMode: ViewMode = $state('assembled');
+  let showTexture = $state(true);
   let pieceVisibility = $state<boolean[]>([]);
   let jobs: JobSummary[] = $state([]);
   let loadingJobs = $state(false);
+
+  let prevFile: File | null = $state(null);
+  $effect(() => {
+    if (file && file !== prevFile) {
+      prevFile = file;
+      result = null;
+      processed = false;
+      jobId = '';
+      pieceVisibility = [];
+    }
+  });
 
   let piecePaths: string[] = $state([]);
   let backPiecePaths: string[] = $state([]);
   let consolidatedPath = $state('');
 
   $effect(() => {
-    piecePaths = result?.pieces.map(p => p.path) ?? [];
-    backPiecePaths = result?.pieces.map(p => p.back_path ?? null).filter((p): p is string => p !== null) ?? [];
-    consolidatedPath = result?.consolidated ?? '';
+    if (result?.piece_count) {
+      piecePaths = result.pieces.map(p => p.path);
+      backPiecePaths = result.pieces.map(p => p.back_path ?? null).filter((p): p is string => p !== null) ?? [];
+      consolidatedPath = result.consolidated ?? '';
+    } else if (result?.normalized_glb) {
+      piecePaths = [];
+      backPiecePaths = [];
+      consolidatedPath = result.normalized_glb;
+    } else {
+      piecePaths = [];
+      backPiecePaths = [];
+      consolidatedPath = '';
+    }
   });
 
   let progressCleanup: (() => void) | null = null;
@@ -38,47 +61,94 @@
   let orientation: CameraOrientation | null = $state(null);
   let nameSaved = $state(false);
 
-  function resultFromJob(data: SliceResult, initialMode: ViewMode = 'split') {
+  function resultFromJob(data: SliceResult, initialMode?: ViewMode) {
     result = data;
     jobId = data.job_id;
     jobName = data.name ?? '';
     orientation = data.orientation ?? null;
     nameSaved = false;
     pieceVisibility = data.pieces.map(() => true);
-    viewMode = initialMode;
+    viewMode = initialMode ?? (data.piece_count > 0 ? 'assembled' : 'assembled');
+    processed = data.piece_count > 0;
   }
 
-  async function handleSlice() {
+  function awaitProgress(
+    jid: string,
+    onComplete: (res: SliceResult) => void,
+  ) {
+    progressCleanup = progressStream(
+      jid,
+      (msg) => { progress = msg; },
+      (res) => {
+        processing = false;
+        onComplete(res);
+        progress = '';
+      },
+      (err) => {
+        processing = false;
+        error = err;
+        progress = '';
+      },
+    );
+  }
+
+  async function handleUpload() {
     if (!file) {
       error = 'Please select a model file first.';
       return;
     }
-    slicing = true;
+    processing = true;
     error = '';
-    progress = 'Starting...';
+    progress = 'Uploading...';
     result = null;
+    processed = false;
     pieceVisibility = [];
 
     try {
-      const { job_id } = await startSlice(file, params);
+      const { job_id } = await uploadModel(file);
       jobId = job_id;
-
-      progressCleanup = progressStream(
-        job_id,
-        (msg) => { progress = msg; },
-        (res) => {
-          slicing = false;
-          resultFromJob(res);
-          progress = 'Done!';
-        },
-        (err) => {
-          slicing = false;
-          error = err;
-          progress = '';
-        },
-      );
+      awaitProgress(job_id, (res) => {
+        resultFromJob(res);
+      });
     } catch (e) {
-      slicing = false;
+      processing = false;
+      error = e instanceof Error ? e.message : String(e);
+      progress = '';
+    }
+  }
+
+  async function handleSlice() {
+    if (!jobId) return;
+    processing = true;
+    error = '';
+    progress = 'Slicing...';
+    pieceVisibility = [];
+
+    try {
+      await sliceJob(jobId, params);
+      awaitProgress(jobId, (res) => {
+        resultFromJob(res);
+      });
+    } catch (e) {
+      processing = false;
+      error = e instanceof Error ? e.message : String(e);
+      progress = '';
+    }
+  }
+
+  async function handleOrphans() {
+    if (!jobId) return;
+    processing = true;
+    error = '';
+    progress = 'Reassigning orphans...';
+
+    try {
+      await reassignOrphans(jobId);
+      awaitProgress(jobId, (res) => {
+        resultFromJob(res);
+      });
+    } catch (e) {
+      processing = false;
       error = e instanceof Error ? e.message : String(e);
       progress = '';
     }
@@ -103,6 +173,8 @@
     try {
       const data = await getJob(jid);
       resultFromJob(data, 'assembled');
+      activeTab = 'new';
+      jobId = data.job_id;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
@@ -111,7 +183,7 @@
   function cancelProgress() {
     progressCleanup?.();
     progressCleanup = null;
-    slicing = false;
+    processing = false;
     progress = '';
   }
 
@@ -153,18 +225,32 @@
       <section class="section">
         <h2>Model</h2>
         <FilePicker bind:file />
+        <button class="btn btn-upload" onclick={handleUpload} disabled={processing || !file}>
+          {processing && !result && progress ? 'Uploading...' : 'Upload'}
+        </button>
+        {#if result}
+          <span class="model-loaded">{result.piece_count > 0 ? `${result.piece_count} pieces` : 'Loaded'}</span>
+        {/if}
       </section>
 
-      <section class="section">
-        <h2>Parameters</h2>
-        <ParamForm bind:params />
-      </section>
+      {#if result}
+        <section class="section">
+          <h2>Parameters</h2>
+          <ParamForm bind:params />
+        </section>
 
-      <button class="btn btn-slice" onclick={handleSlice} disabled={slicing || !file}>
-        {slicing ? 'Slicing...' : 'Slice'}
-      </button>
+        <button class="btn btn-slice" onclick={handleSlice} disabled={processing}>
+          {processing ? 'Slicing...' : processed ? 'Re-Slice' : 'Slice'}
+        </button>
 
-      {#if progress && slicing}
+        {#if processed}
+          <button class="btn btn-orphans" onclick={handleOrphans} disabled={processing}>
+            Reassign Orphans
+          </button>
+        {/if}
+      {/if}
+
+      {#if progress && processing}
         <div class="progress">
           {progress}
           <button class="cancel-btn" onclick={cancelProgress}>Cancel</button>
@@ -213,7 +299,7 @@
     />
   </main>
 
-  {#if result}
+  {#if processed && result}
     <aside class="results-panel">
       <div class="view-toggle">
         <button
@@ -312,6 +398,19 @@
     color: #888;
     margin: 0;
   }
+  .btn-upload {
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    background: #3a7b5f;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-upload:hover:not(:disabled) { background: #2e694e; }
+  .btn-upload:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-slice {
     padding: 0.6rem 1rem;
     font-size: 1rem;
@@ -325,6 +424,24 @@
   }
   .btn-slice:hover:not(:disabled) { background: #3a7bff; }
   .btn-slice:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-orphans {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    background: #8c6a3f;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-orphans:hover:not(:disabled) { background: #6e502e; }
+  .btn-orphans:disabled { opacity: 0.4; cursor: not-allowed; }
+  .model-loaded {
+    font-size: 0.75rem;
+    color: #4f8cff;
+    font-family: monospace;
+  }
   .main {
     flex: 1;
     position: relative;

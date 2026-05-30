@@ -105,9 +105,24 @@ public class PuzzleCard : MonoBehaviour
 
         bool isDownloaded = !isRemoteUndownloaded;
 
+        if (resumeButton != null) resumeButton.gameObject.SetActive(false);
+        if (newGameButton != null) newGameButton.gameObject.SetActive(false);
+        if (resetButton != null) resetButton.gameObject.SetActive(false);
+
         SetupButton(resumeButton, manager.OnStartPuzzle, info, true, ResumeColors, isDownloaded && info.hasSave);
         SetupButton(newGameButton, manager.OnStartPuzzle, info, false, NewGameColors, isDownloaded);
         SetupButton(resetButton, manager.OnResetPuzzle, info, ResetColors, isDownloaded && info.hasSave);
+
+        if (downloadButton == null)
+        {
+            var btnRow = transform.Find("ButtonRow");
+            if (btnRow != null)
+            {
+                var dlBtn = btnRow.Find("DownloadButton");
+                if (dlBtn != null)
+                    downloadButton = dlBtn.GetComponent<Button>();
+            }
+        }
 
         if (downloadButton != null)
         {
@@ -115,9 +130,14 @@ public class PuzzleCard : MonoBehaviour
             downloadButton.colors = DownloadColors;
             downloadButton.onClick.RemoveAllListeners();
             downloadButton.onClick.AddListener(() => manager.DownloadAndStartPuzzle(info));
+            downloadButton.interactable = true;
 
             if (downloadProgressText != null)
                 downloadProgressText.gameObject.SetActive(false);
+        }
+        else
+        {
+            Debug.LogWarning($"[PuzzleCard] downloadButton field is NULL — isRemote={puzzleInfo.isRemote}, isDownloaded={puzzleInfo.isDownloaded}");
         }
     }
 
@@ -201,6 +221,12 @@ public class PuzzleCard : MonoBehaviour
             Debug.LogWarning($"[PuzzleCard] Failed to load thumbnail: {e.Message}");
             thumbnailImage.color = new Color(0.15f, 0.15f, 0.2f, 1f);
         }
+    }
+
+    public void UpdateThumbnail(string thumbnailPath)
+    {
+        puzzleInfo.thumbnailPath = thumbnailPath;
+        LoadThumbnail(thumbnailPath);
     }
 
     private void FitThumbnailAspect(float texWidth, float texHeight)

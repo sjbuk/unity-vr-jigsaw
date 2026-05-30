@@ -233,7 +233,7 @@ public class InGameMenuController : MonoBehaviour
     void HidePuzzlePieces()
     {
         var puzzleRoot = GameObject.Find("PuzzleRoot");
-        if (puzzleRoot != null)
+        if (puzzleRoot != null && puzzleRoot.activeInHierarchy)
         {
             foreach (var mr in puzzleRoot.GetComponentsInChildren<MeshRenderer>())
                 mr.enabled = false;
@@ -243,7 +243,7 @@ public class InGameMenuController : MonoBehaviour
     void ShowPuzzlePieces()
     {
         var puzzleRoot = GameObject.Find("PuzzleRoot");
-        if (puzzleRoot != null)
+        if (puzzleRoot != null && puzzleRoot.activeInHierarchy)
         {
             foreach (var mr in puzzleRoot.GetComponentsInChildren<MeshRenderer>())
                 mr.enabled = true;

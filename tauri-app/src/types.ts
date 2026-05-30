@@ -30,6 +30,7 @@ export interface SliceResult {
   colour_atlas?: string;
   name?: string;
   orientation?: CameraOrientation | null;
+  normalized_glb?: string;
 }
 
 export interface JobSummary {
@@ -48,5 +49,5 @@ export const DEFAULT_PARAMS: SliceParams = {
   pieces: 24,
   gap: 0.001,
   seed: null,
-  reassign_orphans: true,
+  reassign_orphans: false,
 };

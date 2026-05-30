@@ -39,9 +39,6 @@ public class PiecePreview : MonoBehaviour
     private InputActionMap jigsawMap;
     private InputAction thumbstickAction;
 
-    private float _debugLogTimer;
-    private static readonly float _debugLogInterval = 1f;
-
     void Awake()
     {
         if (controllerTransform == null)
@@ -147,14 +144,6 @@ public class PiecePreview : MonoBehaviour
 
     void LateUpdate()
     {
-        _debugLogTimer += Time.deltaTime;
-        if (_debugLogTimer >= _debugLogInterval)
-        {
-            _debugLogTimer = 0f;
-            PieceState t = laserPointer != null ? laserPointer.TargetedPiece : null;
-            Debug.Log($"[PiecePreview] {gameObject.name} laserPtr={laserPointer!=null} ctrlXform={controllerTransform!=null} laserActive={laserPointer?.isActive} targeted={t?.PieceId} state={t?.CurrentState} previewActive={previewActive}");
-        }
-
         if (laserPointer == null || controllerTransform == null) return;
 
         if (!laserPointer.isActive) { HidePreview(); return; }

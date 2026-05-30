@@ -141,6 +141,8 @@ public class PuzzleManager : MonoBehaviour
         catch (System.Exception) { if (this == null) return; }
         if (this == null) return;
 
+        EnableGPUInstancingOnAllMaterials(root.transform);
+
         var pieceNodes = new Dictionary<int, List<Transform>>();
         CollectPieceNodes(root.transform, pieceNodes);
 
@@ -237,6 +239,15 @@ public class PuzzleManager : MonoBehaviour
             if (pieceSize > maxSize) maxSize = pieceSize;
         }
         return maxSize * 1.2f;
+    }
+
+    void EnableGPUInstancingOnAllMaterials(Transform root)
+    {
+        foreach (var renderer in root.GetComponentsInChildren<Renderer>())
+        {
+            if (renderer.sharedMaterial != null)
+                renderer.sharedMaterial.enableInstancing = true;
+        }
     }
 
     private int ParsePieceId(string name)

@@ -29,6 +29,8 @@ public class PuzzleManager : MonoBehaviour
     {
         try
         {
+            DisableTeleport();
+
             if (string.IsNullOrEmpty(PuzzleFolderPath))
             {
                 string puzzlesPath;
@@ -352,4 +354,30 @@ public class PuzzleManager : MonoBehaviour
 
     void OnApplicationQuit() { saveManager?.Save(); }
     void OnApplicationPause(bool pauseStatus) { if (pauseStatus) saveManager?.Save(); }
+
+    void DisableTeleport()
+    {
+        foreach (var t in FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        {
+            if (t.name != "Left Controller" && t.name != "Right Controller")
+                continue;
+
+            var teleportChild = t.Find("Teleport Interactor");
+            if (teleportChild != null)
+                teleportChild.gameObject.SetActive(false);
+
+            foreach (var nf in t.GetComponents<UnityEngine.XR.Interaction.Toolkit.Interactors.NearFarInteractor>())
+            {
+                nf.enableNearCasting = false;
+                nf.enableFarCasting = false;
+            }
+        }
+
+        var inputAssets = Resources.FindObjectsOfTypeAll<UnityEngine.InputSystem.InputActionAsset>();
+        foreach (var asset in inputAssets)
+        {
+            asset.FindActionMap("XRI LeftHand Locomotion")?.Disable();
+            asset.FindActionMap("XRI RightHand Locomotion")?.Disable();
+        }
+    }
 }

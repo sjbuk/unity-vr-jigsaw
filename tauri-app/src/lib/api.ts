@@ -2,6 +2,44 @@ import type { SliceParams, SliceResult, JobSummary, CameraOrientation } from '..
 
 const API = '/api';
 
+export async function uploadModel(file: File): Promise<{ job_id: string }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const r = await fetch(`${API}/upload`, { method: 'POST', body: fd });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(text || `Upload failed with status ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function sliceJob(
+  jobId: string,
+  config: SliceParams,
+): Promise<{ job_id: string }> {
+  const r = await fetch(`${API}/slice/${jobId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(text || `Slice failed with status ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function reassignOrphans(
+  jobId: string,
+): Promise<{ job_id: string }> {
+  const r = await fetch(`${API}/orphans/${jobId}`, { method: 'POST' });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(text || `Orphan reassign failed with status ${r.status}`);
+  }
+  return r.json();
+}
+
 export async function startSlice(
   file: File,
   config: SliceParams,

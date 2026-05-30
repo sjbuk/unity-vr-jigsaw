@@ -3,10 +3,12 @@ planar_phase_022 -- Iterative orphan fragment reassignment.
 
 After BSP planar slicing, pieces may contain disconnected fragments (orphans)
 because face-level assignments separate small groups of faces from the main body.
-This step repeatedly applies AABB pre-filter + vertex-proximity scoring until
+This step repeatedly applies AABB pre-filter + centroid-proximity scoring until
 the orphan count converges, reassigning each orphan to its nearest parent.
 
-Memory optimisations (v2):
+Performance optimisations (v3):
+- Centroid-based parent selection replaces the brute-force O(v*q) vertex-distance
+  matrix, eliminating large temporary array allocations that were memory-bound.
 - Component discovery uses graph labelling (``trimesh.graph``) avoiding per-component
   Trimesh allocations during the enumeration phase.
 - Orphan sub-meshes are extracted lazily, one at a time, and explicitly deleted
@@ -14,8 +16,8 @@ Memory optimisations (v2):
 - ``merge_vertices()`` is deferred to a single call per parent after all merges
   complete, eliminating repeated internal re-indexing and spatial-index builds
   inside the hot loop.
-- Explicit ``gc.collect()`` calls between iterations and at pass boundaries
-  force early release of orphaned numpy buffers back to the OS.
+- Explicit ``gc.collect()`` calls between iterations force early release of
+  orphaned numpy buffers back to the OS.
 """
 
 import gc
@@ -93,52 +95,38 @@ def _find_best_parent(
     orphan: trimesh.Trimesh,
     parents: list[trimesh.Trimesh],
     parent_aabbs: np.ndarray,
+    parent_centroids: np.ndarray,
 ) -> int:
     """Return the index of the best parent for *orphan*.
 
-    Uses vectorized AABB overlap as a pre-filter, then falls back to
-    minimum vertex-to-vertex distance for candidates that pass the filter.
+    Uses vectorized AABB overlap as primary filter (favouring parents with
+    the most overlapping axes), then breaks ties with centroid proximity.
+    Falls back to pure centroid proximity when no axis overlap exists.
     """
     o_min = orphan.bounds[0]
     o_max = orphan.bounds[1]
 
-    # ---- vectorized AABB overlap (3-axis) ----
     overlaps = np.sum(
         (o_min <= parent_aabbs[:, 1, :]) & (parent_aabbs[:, 0, :] <= o_max),
         axis=1,
     )
-    candidates = np.where(overlaps >= 2)[0]
 
-    if len(candidates) > 0:
-        verts = orphan.vertices
-        step = max(1, len(verts) // 32)
-        query = verts[::step]
+    best_overlap = int(overlaps.max())
+    candidates = np.where(overlaps >= max(1, best_overlap))[0]
 
-        best_idx = candidates[0]
-        best_overlap = overlaps[best_idx]
-        best_dist = np.inf
+    if len(candidates) == 0:
+        o_center = orphan.centroid
+        return int(np.linalg.norm(parent_centroids - o_center, axis=1).argmin())
 
-        for i in candidates:
-            pv = parents[i].vertices
-            dist = float(
-                np.linalg.norm(
-                    query[:, None, :] - pv[None, :, :], axis=-1
-                ).min()
-            )
-            if overlaps[i] > best_overlap or (
-                overlaps[i] == best_overlap and dist < best_dist
-            ):
-                best_overlap = overlaps[i]
-                best_dist = dist
-                best_idx = i
-        return best_idx
+    if len(candidates) == 1:
+        return int(candidates[0])
 
-    # no AABB-viable candidate -- pure centroid proximity fallback
-    o_center = orphan.triangles_center.mean(axis=0)
-    parent_centroids = np.array(
-        [p.triangles_center.mean(axis=0) for p in parents]
+    o_center = orphan.centroid
+    candidate_centroids = parent_centroids[candidates]
+    best_local = int(
+        np.linalg.norm(candidate_centroids - o_center, axis=1).argmin()
     )
-    return int(np.linalg.norm(parent_centroids - o_center, axis=1).argmin())
+    return int(candidates[best_local])
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +154,7 @@ def reassign_orphans(
     list[trimesh.Trimesh]
         Cohesive pieces with all orphans reassigned.
     """
-    print("[Phase 2] Orphan reassignment (v2 optimised) …", file=sys.stderr, flush=True)
+    print("[Phase 2] Orphan reassignment (v3 centroid) …", file=sys.stderr, flush=True)
 
     MAX_ITER = 3
     prev = None
@@ -196,7 +184,7 @@ def _reassign_orphans_pass(
     pieces: list[trimesh.Trimesh],
 ) -> tuple[list[trimesh.Trimesh], int]:
     """
-    Single pass of orphan reassignment using AABB pre-filter + vertex proximity.
+    Single pass of orphan reassignment using AABB pre-filter + centroid proximity.
 
     Instead of splitting every piece into full ``Trimesh`` objects upfront
     (which duplicates all geometry), connected components are discovered via
@@ -267,31 +255,46 @@ def _reassign_orphans_pass(
     # ---- 2.  sort orphans by face count (largest first) ----
     orphan_data.sort(key=lambda x: x[0], reverse=True)
 
-    # ---- 3.  seed parent AABBs, expanded to full original piece bounds ----
+    # ---- 3.  seed parent AABBs (expanded) and centroids ----
     parent_aabbs = np.array([p.bounds for p in parents])
+    parent_centroids = np.array([p.centroid for p in parents])
     for i in range(len(parent_aabbs)):
         orig = pieces[i].bounds
         parent_aabbs[i, 0] = np.minimum(parent_aabbs[i, 0], orig[0])
         parent_aabbs[i, 1] = np.maximum(parent_aabbs[i, 1], orig[1])
 
-    # ---- 4.  lazily extract, assign, merge, discard ----
-    for _, source_idx, mask_or_mesh in orphan_data:
-        if source_idx == -1:
-            # pre-extracted mesh from fallback split()
-            orphan: trimesh.Trimesh = mask_or_mesh  # type: ignore[assignment]
-        else:
-            orphan = _extract_submesh(
-                pieces[source_idx],
-                mask_or_mesh,  # type: ignore[arg-type]
-            )
+    # ---- 4.  pre-extract all orphan submeshes in parallel ----
+    orphan_meshes: list[trimesh.Trimesh] = [None] * total_orphans  # type: ignore[list-item]
 
-        target = _find_best_parent(orphan, parents, parent_aabbs)
+    def _extract_one(args):
+        idx, source_idx, face_mask = args
+        return idx, _extract_submesh(pieces[source_idx], face_mask)
+
+    with ThreadPoolExecutor() as ex:
+        futs = []
+        for i, (_, source_idx, mask_or_mesh) in enumerate(orphan_data):
+            if source_idx == -1:
+                orphan_meshes[i] = mask_or_mesh
+            else:
+                futs.append(ex.submit(_extract_one, (i, source_idx, mask_or_mesh)))
+        for fut in futs:
+            idx, mesh = fut.result()
+            orphan_meshes[idx] = mesh
+
+    # ---- 5.  assign, merge, update (sequential -- parent state mutates) ----
+    for orphan in orphan_meshes:
+        target = _find_best_parent(
+            orphan, parents, parent_aabbs, parent_centroids
+        )
         parents[target] = _merge_mesh_into(parents[target], orphan)
         parent_aabbs[target] = parents[target].bounds
+        parent_centroids[target] = parents[target].centroid
 
         del orphan  # free sub-mesh immediately
 
-    # ---- 5.  deferred merge_vertices (parallel, one call per parent) ----
+    del orphan_meshes
+
+    # ---- 6.  deferred merge_vertices (parallel, one call per parent) ----
     def _merge_one(p):
         p.merge_vertices()
         return p
@@ -301,7 +304,7 @@ def _reassign_orphans_pass(
         for i, fut in enumerate(futs):
             parents[i] = fut.result()
 
-    # ---- 6.  explicit cleanup ----
+    # ---- 7.  explicit cleanup ----
     del orphan_data
     gc.collect()
 

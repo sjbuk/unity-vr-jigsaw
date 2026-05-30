@@ -154,6 +154,17 @@ public class MenuManager : MonoBehaviour
             apiUrl = persistedUrl;
         PuzzleApiClient.BaseUrl = apiUrl;
 
+        SetupContainer();
+        SetupXRTrackingOrigin();
+        SetupMenuUIControllers();
+
+        StartCoroutine(DeferredCameraSetup());
+    }
+
+    System.Collections.IEnumerator DeferredCameraSetup()
+    {
+        yield return new WaitForEndOfFrame();
+
         var cam = Camera.main;
         if (cam != null)
         {
@@ -162,9 +173,6 @@ public class MenuManager : MonoBehaviour
             cachedCameraRight = cam.transform.right;
         }
 
-        SetupContainer();
-        SetupXRTrackingOrigin();
-        SetupMenuUIControllers();
         SetupCanvasWorldCamera();
         CreateTitle();
         CreateApiUrlPanel();
@@ -751,6 +759,51 @@ public class MenuManager : MonoBehaviour
 
         isLoadingRemote = false;
         ArrangePanels();
+
+        await DownloadRemotePreviews();
+        if (this == null) return;
+    }
+
+    async Task DownloadRemotePreviews()
+    {
+        string cacheDir = Path.Combine(Application.persistentDataPath, "puzzle_previews");
+        Directory.CreateDirectory(cacheDir);
+
+        foreach (var info in discoveredPuzzles)
+        {
+            if (!info.isRemote || info.isDownloaded)
+                continue;
+
+            string cachedPath = Path.Combine(cacheDir, $"{info.remoteJobId}_preview.png");
+            if (File.Exists(cachedPath))
+            {
+                info.thumbnailPath = cachedPath;
+            }
+            else
+            {
+                byte[] data = await PuzzleApiClient.DownloadFile(info.remoteJobId, "preview.png");
+                if (this == null) return;
+
+                if (data != null && data.Length > 0)
+                {
+                    File.WriteAllBytes(cachedPath, data);
+                    info.thumbnailPath = cachedPath;
+                }
+            }
+
+            PuzzleCard card = null;
+            foreach (var c in workingContainer.GetComponentsInChildren<PuzzleCard>())
+            {
+                if (c.PuzzleInfo == info)
+                {
+                    card = c;
+                    break;
+                }
+            }
+
+            if (card != null && !string.IsNullOrEmpty(info.thumbnailPath))
+                card.UpdateThumbnail(info.thumbnailPath);
+        }
     }
 
     void ArrangePanels()

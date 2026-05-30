@@ -253,10 +253,7 @@ public class PiecePreview : MonoBehaviour
             newMf.sharedMesh = mf.sharedMesh;
 
             var newMr = child.AddComponent<MeshRenderer>();
-            if (laserPointer.TryGetOriginalMaterial(mr, out var orig))
-                newMr.sharedMaterial = orig;
-            else
-                newMr.sharedMaterial = mr.sharedMaterial;
+            newMr.sharedMaterial = mr.sharedMaterial;
             newMr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             newMr.receiveShadows = false;
 

@@ -41,9 +41,9 @@ public class LaserPointer : MonoBehaviour
 
     private PieceState targetedPiece;
     public PieceState TargetedPiece => targetedPiece;
-    private Material cachedHighlightMat;
-    private readonly List<(MeshRenderer renderer, Material original)> highlightedRenderers = new List<(MeshRenderer, Material)>();
-    private readonly List<(MeshRenderer renderer, Material original)> pendingClearHighlight = new List<(MeshRenderer, Material)>();
+    private readonly List<MeshRenderer> highlightedRenderers = new List<MeshRenderer>();
+    private MaterialPropertyBlock highlightPropertyBlock;
+    private Color highlightColor = new Color(1f, 0.84f, 0f, 1f);
 
     private int lastRaycastFrame = -1;
     private RaycastHit lastRaycastHit;
@@ -61,36 +61,12 @@ public class LaserPointer : MonoBehaviour
             Hand = gameObject.name.Contains("Left") ? HandSide.Left : HandSide.Right;
         }
 
-        CacheHighlightMaterial();
+        highlightPropertyBlock = new MaterialPropertyBlock();
 
         var loaded = TryLoadInputActions();
         Debug.Log($"[LaserPointer] {gameObject.name} Awake: Hand={Hand}, actionsLoaded={loaded}, toggleAction={(toggleAction != null ? "found" : "null")}");
         if (loaded)
             BindInput();
-    }
-
-    void CacheHighlightMaterial()
-    {
-        var urpShader = Shader.Find("Universal Render Pipeline/Unlit");
-        if (urpShader != null)
-        {
-            cachedHighlightMat = new Material(urpShader);
-            cachedHighlightMat.name = "PieceHighlight_URP";
-            var loaded = Resources.Load<Material>("PieceHighlight");
-            cachedHighlightMat.color = (loaded != null) ? loaded.color : new Color(1f, 0.84f, 0f, 0.5f);
-            return;
-        }
-
-        cachedHighlightMat = Resources.Load<Material>("PieceHighlight");
-        if (cachedHighlightMat == null)
-        {
-            var fallback = Shader.Find("Unlit/Color");
-            if (fallback != null)
-            {
-                cachedHighlightMat = new Material(fallback);
-                cachedHighlightMat.color = new Color(1f, 0.84f, 0f, 0.5f);
-            }
-        }
     }
 
     /// <summary>Attempts to load the XRI_Jigsaw input actions from Resources.</summary>
@@ -183,8 +159,6 @@ public class LaserPointer : MonoBehaviour
 
     void Update()
     {
-        ProcessDeferredClearHighlight();
-
         if (!isActive || pieceHolder == null || pieceHolder.IsHolding)
         {
             if (lineRenderer != null) lineRenderer.enabled = false;
@@ -338,92 +312,43 @@ public class LaserPointer : MonoBehaviour
         onArrive?.Invoke();
     }
 
-    /// <summary>Applies a highlight material to all pieces in the targeted piece's cluster.</summary>
+    /// <summary>Applies highlight color via MaterialPropertyBlock (no material swap).</summary>
     private void HighlightPiece(PieceState piece)
     {
-        double t0 = Time.realtimeSinceStartupAsDouble;
-
         if (targetedPiece == piece && highlightedRenderers.Count > 0) return;
 
-        var cluster = (pieceHolder.snapSystem != null)
-            ? pieceHolder.snapSystem.GetClusterPieceStates(piece.ClusterId)
-            : new List<PieceState> { piece };
-
-        bool sameCluster = true;
-        if (highlightedRenderers.Count != cluster.Count) sameCluster = false;
-        else
+        if (targetedPiece != piece)
         {
-            for (int i = 0; i < cluster.Count; i++)
+            ClearHighlight();
+            targetedPiece = piece;
+
+            var cluster = (pieceHolder.snapSystem != null)
+                ? pieceHolder.snapSystem.GetClusterPieceStates(piece.ClusterId)
+                : new List<PieceState> { piece };
+
+            foreach (var p in cluster)
             {
-                var r = cluster[i].GetComponentInChildren<MeshRenderer>();
-                if (i >= highlightedRenderers.Count || highlightedRenderers[i].renderer != r)
-                { sameCluster = false; break; }
+                var renderer = p.GetComponentInChildren<MeshRenderer>();
+                if (renderer != null)
+                {
+                    highlightedRenderers.Add(renderer);
+                    highlightPropertyBlock.SetColor("_Color", highlightColor);
+                    renderer.SetPropertyBlock(highlightPropertyBlock);
+                }
             }
         }
-
-        if (sameCluster) return;
-
-        ClearHighlight();
-        targetedPiece = piece;
-
-        if (cachedHighlightMat == null) return;
-
-        foreach (var p in cluster)
-        {
-            var renderer = p.GetComponentInChildren<MeshRenderer>();
-            if (renderer != null)
-            {
-                highlightedRenderers.Add((renderer, renderer.sharedMaterial));
-                renderer.sharedMaterial = cachedHighlightMat;
-            }
-        }
-
-        float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
-        Debug.Log($"[Perf F:{Time.frameCount}] HighlightPiece count={highlightedRenderers.Count}: {ms:F2}ms");
     }
 
-    /// <summary>Defers material restoration to next frame to avoid render pipeline spikes.</summary>
+    /// <summary>Clears highlight by resetting MaterialPropertyBlock.</summary>
     private void ClearHighlight()
     {
-        if (highlightedRenderers.Count == 0) return;
-
-        pendingClearHighlight.Clear();
-        pendingClearHighlight.AddRange(highlightedRenderers);
+        foreach (var renderer in highlightedRenderers)
+        {
+            if (renderer != null)
+                renderer.SetPropertyBlock(null);
+        }
         highlightedRenderers.Clear();
         targetedPiece = null;
     }
 
-    private void ProcessDeferredClearHighlight()
-    {
-        if (pendingClearHighlight.Count == 0) return;
-
-        double t0 = Time.realtimeSinceStartupAsDouble;
-
-        foreach (var (renderer, original) in pendingClearHighlight)
-        {
-            if (renderer != null && original != null)
-                renderer.sharedMaterial = original;
-        }
-
-        int cleared = pendingClearHighlight.Count;
-        pendingClearHighlight.Clear();
-
-        float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
-        if (ms > 0.1f)
-            Debug.Log($"[Perf F:{Time.frameCount}] ClearHighlight (deferred) n={cleared}: {ms:F2}ms");
-    }
-
-    public bool TryGetOriginalMaterial(MeshRenderer renderer, out Material original)
-    {
-        foreach (var (r, mat) in highlightedRenderers)
-        {
-            if (r == renderer)
-            {
-                original = mat;
-                return true;
-            }
-        }
-        original = null;
-        return false;
-    }
 }

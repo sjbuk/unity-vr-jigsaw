@@ -1,3 +1,8 @@
+export interface CameraOrientation {
+  position: [number, number, number];
+  target: [number, number, number];
+}
+
 export interface SliceParams {
   input_path: string;
   output_path: string;
@@ -16,12 +21,23 @@ export interface PieceInfo {
 }
 
 export interface SliceResult {
+  job_id: string;
   piece_count: number;
   output_dir: string;
   consolidated: string;
   checkpoint: string;
   pieces: PieceInfo[];
   colour_atlas?: string;
+  name?: string;
+  orientation?: CameraOrientation | null;
+}
+
+export interface JobSummary {
+  job_id: string;
+  piece_count: number;
+  source_model: string;
+  name: string;
+  created_at: string;
 }
 
 export type ViewMode = 'split' | 'assembled' | 'simulate';

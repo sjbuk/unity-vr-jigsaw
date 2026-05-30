@@ -1,119 +1,139 @@
 <script lang="ts">
-  import { listen } from '@tauri-apps/api/event';
-  import { open } from '@tauri-apps/plugin-dialog';
   import FilePicker from './lib/FilePicker.svelte';
   import ParamForm from './lib/ParamForm.svelte';
   import PieceViewer from './lib/PieceViewer.svelte';
   import PieceList from './lib/PieceList.svelte';
-  import { exists } from '@tauri-apps/plugin-fs';
-  import { sliceModel, readTextFile } from './lib/api';
-  import type { SliceParams, SliceResult, PieceInfo, ViewMode } from './types';
+  import { startSlice, progressStream, listJobs, getJob, updateJobMeta } from './lib/api';
+  import type { SliceParams, SliceResult, ViewMode, JobSummary, CameraOrientation } from './types';
   import { DEFAULT_PARAMS } from './types';
 
+  let activeTab: 'new' | 'previous' = $state('new');
+  let file: File | null = $state(null);
   let params: SliceParams = $state({ ...DEFAULT_PARAMS });
   let slicing = $state(false);
-  let result: SliceResult | null = $state(null);
   let progress = $state('');
   let error = $state('');
+  let result: SliceResult | null = $state(null);
+  let jobId = $state('');
   let viewMode: ViewMode = $state('split');
   let showTexture = $state(false);
   let pieceVisibility = $state<boolean[]>([]);
+  let jobs: JobSummary[] = $state([]);
+  let loadingJobs = $state(false);
 
-  let piecePaths: string[] = $derived(result ? result.pieces.map(p => p.path) : []);
-  let backPiecePaths: string[] = $derived(result ? result.pieces.map(p => p.back_path ?? null).filter((p): p is string => p !== null) : []);
-  let consolidatedPath: string = $derived(result?.consolidated ?? '');
+  let piecePaths: string[] = $state([]);
+  let backPiecePaths: string[] = $state([]);
+  let consolidatedPath = $state('');
 
   $effect(() => {
-    const unlisten = listen<string>('slice-progress', (event) => {
-      progress = event.payload;
-    });
-    return () => { unlisten.then(fn => fn()); };
+    piecePaths = result?.pieces.map(p => p.path) ?? [];
+    backPiecePaths = result?.pieces.map(p => p.back_path ?? null).filter((p): p is string => p !== null) ?? [];
+    consolidatedPath = result?.consolidated ?? '';
   });
 
+  let progressCleanup: (() => void) | null = null;
+
+  let captureCamera: (() => CameraOrientation) | null = $state(null);
+  let jobName = $state('');
+  let orientation: CameraOrientation | null = $state(null);
+  let nameSaved = $state(false);
+
+  function resultFromJob(data: SliceResult, initialMode: ViewMode = 'split') {
+    result = data;
+    jobId = data.job_id;
+    jobName = data.name ?? '';
+    orientation = data.orientation ?? null;
+    nameSaved = false;
+    pieceVisibility = data.pieces.map(() => true);
+    viewMode = initialMode;
+  }
+
   async function handleSlice() {
-    if (!params.input_path) {
+    if (!file) {
       error = 'Please select a model file first.';
       return;
     }
     slicing = true;
     error = '';
-    progress = 'Starting…';
+    progress = 'Starting...';
     result = null;
     pieceVisibility = [];
 
-    const sep = params.input_path.includes('\\') ? '\\' : '/';
-    const dir = params.input_path.substring(0, params.input_path.lastIndexOf(sep));
-    const basename = params.input_path.substring(params.input_path.lastIndexOf(sep) + 1, params.input_path.lastIndexOf('.'));
-    const countStr = String(params.pieces).padStart(4, '0');
-    const modeLabel = 'planar';
-
-    let outputDir = '';
-    let counter = 0;
-    while (true) {
-      const candidate = `${dir}${sep}${basename}_${modeLabel}_pieces_${countStr}_${String(counter).padStart(3, '0')}`;
-      if (!(await exists(candidate))) {
-        outputDir = candidate;
-        break;
-      }
-      counter++;
-      if (counter > 999) {
-        outputDir = `${dir}${sep}${basename}_${modeLabel}_pieces_${countStr}_${Date.now()}`;
-        break;
-      }
-    }
-
     try {
-      result = await sliceModel({ ...params, output_path: outputDir });
-      pieceVisibility = result.pieces.map(() => true);
-      progress = 'Done!';
+      const { job_id } = await startSlice(file, params);
+      jobId = job_id;
+
+      progressCleanup = progressStream(
+        job_id,
+        (msg) => { progress = msg; },
+        (res) => {
+          slicing = false;
+          resultFromJob(res);
+          progress = 'Done!';
+        },
+        (err) => {
+          slicing = false;
+          error = err;
+          progress = '';
+        },
+      );
     } catch (e) {
-      error = typeof e === 'string' ? e : String(e);
-      progress = '';
-    } finally {
       slicing = false;
+      error = e instanceof Error ? e.message : String(e);
+      progress = '';
     }
   }
 
-  async function handleLoadFolder() {
-    const folder = await open({
-      directory: true,
-      multiple: false,
-    });
-    if (!folder) return;
-
-    const checkpointPath = `${folder}/checkpoint.json`;
-
+  async function handleLoadPrevious() {
+    activeTab = 'previous';
+    loadingJobs = true;
+    error = '';
     try {
-      const text = await readTextFile(checkpointPath);
-      const data = JSON.parse(text);
-
-      const pieces: PieceInfo[] = [];
-      const counts: number[] = data.piece_vertex_counts ?? [];
-
-      const files = data.piece_count ?? counts.length;
-      for (let i = 0; i < files; i++) {
-        const backPath = `${folder}/pieces/piece_${String(i).padStart(4, '0')}_back.glb`;
-        pieces.push({
-          index: i,
-          path: `${folder}/pieces/piece_${String(i).padStart(4, '0')}.glb`,
-          vertices: counts[i] ?? 0,
-          back_path: backPath,
-        });
-      }
-
-      result = {
-        piece_count: pieces.length,
-        output_dir: folder,
-        consolidated: `${folder}/pieces.glb`,
-        checkpoint: checkpointPath,
-        colour_atlas: `${folder}/colour_atlas.png`,
-        pieces,
-      };
-
-      pieceVisibility = pieces.map(() => true);
-      error = '';
+      jobs = await listJobs();
     } catch (e) {
-      error = `Failed to load from folder: ${e instanceof Error ? e.message : String(e)}`;
+      error = 'Failed to load previous jobs';
+    } finally {
+      loadingJobs = false;
+    }
+  }
+
+  async function handleSelectJob(jid: string) {
+    error = '';
+    progress = '';
+    try {
+      const data = await getJob(jid);
+      resultFromJob(data, 'assembled');
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  function cancelProgress() {
+    progressCleanup?.();
+    progressCleanup = null;
+    slicing = false;
+    progress = '';
+  }
+
+  async function saveView() {
+    const cam = captureCamera?.();
+    if (!cam || !result) return;
+    try {
+      await updateJobMeta(result.job_id, { orientation: cam });
+      orientation = cam;
+    } catch (e) {
+      error = 'Failed to save view angle';
+    }
+  }
+
+  async function saveName() {
+    if (!result) return;
+    try {
+      await updateJobMeta(result.job_id, { name: jobName });
+      nameSaved = true;
+      setTimeout(() => (nameSaved = false), 1500);
+    } catch (e) {
+      error = 'Failed to save name';
     }
   }
 </script>
@@ -122,29 +142,60 @@
   <aside class="sidebar">
     <h1>Jigsaw Slicer</h1>
 
-    <section class="section">
-      <h2>Model</h2>
-      <FilePicker bind:selectedPath={params.input_path} />
-    </section>
+    <div class="tab-bar">
+      <button class="tab-btn" class:active={activeTab === 'new'}
+              onclick={() => (activeTab = 'new')}>Slice New</button>
+      <button class="tab-btn" class:active={activeTab === 'previous'}
+              onclick={handleLoadPrevious}>Load Previous</button>
+    </div>
 
-    <section class="section">
-      <h2>Parameters</h2>
-      <ParamForm bind:params />
-    </section>
+    {#if activeTab === 'new'}
+      <section class="section">
+        <h2>Model</h2>
+        <FilePicker bind:file />
+      </section>
 
-    <button class="btn btn-slice" onclick={handleSlice} disabled={slicing || !params.input_path}>
-      {slicing ? 'Slicing…' : 'Slice'}
-    </button>
+      <section class="section">
+        <h2>Parameters</h2>
+        <ParamForm bind:params />
+      </section>
 
-    <button class="btn btn-secondary" onclick={handleLoadFolder}>
-      Load From Folder…
-    </button>
+      <button class="btn btn-slice" onclick={handleSlice} disabled={slicing || !file}>
+        {slicing ? 'Slicing...' : 'Slice'}
+      </button>
 
-    {#if progress && slicing}
-      <div class="progress">{progress}</div>
-    {/if}
-    {#if error}
-      <div class="error">{error}</div>
+      {#if progress && slicing}
+        <div class="progress">
+          {progress}
+          <button class="cancel-btn" onclick={cancelProgress}>Cancel</button>
+        </div>
+      {/if}
+      {#if error}
+        <div class="error">{error}</div>
+      {/if}
+    {:else}
+      <section class="section">
+        <h2>Previous Jobs</h2>
+        {#if loadingJobs}
+          <p class="info-text">Loading...</p>
+        {:else if jobs.length === 0}
+          <p class="info-text">No previous jobs found.</p>
+        {:else}
+          <ul class="job-list">
+            {#each jobs as job}
+              <li>
+                <button class="job-item" onclick={() => handleSelectJob(job.job_id)}>
+                  <span class="job-name" title={job.name || job.source_model}>{job.name || job.source_model || job.job_id}</span>
+                  <span class="job-meta">{job.piece_count} pieces &middot; {job.created_at}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </section>
+      {#if error}
+        <div class="error">{error}</div>
+      {/if}
     {/if}
   </aside>
 
@@ -153,30 +204,49 @@
       bind:piecePaths
       bind:backPiecePaths
       bind:consolidatedPath
+      bind:jobId
       bind:viewMode
       bind:pieceVisible={pieceVisibility}
       bind:showTexture
+      bind:cameraCaptureRef={captureCamera}
+      bind:initialOrientation={orientation}
     />
   </main>
 
   {#if result}
     <aside class="results-panel">
-        <div class="view-toggle">
-          <button
-            class="toggle-btn" class:active={viewMode === 'split'}
-            onclick={() => (viewMode = 'split')}>Split</button>
-          <button
-            class="toggle-btn" class:active={viewMode === 'assembled'}
-            onclick={() => (viewMode = 'assembled')}>Assembled</button>
-          <button
-            class="toggle-btn" class:active={viewMode === 'simulate'}
-            onclick={() => (viewMode = 'simulate')}>Simulate</button>
-        </div>
+      <div class="view-toggle">
+        <button
+          class="toggle-btn" class:active={viewMode === 'split'}
+          onclick={() => (viewMode = 'split')}>Split</button>
+        <button
+          class="toggle-btn" class:active={viewMode === 'assembled'}
+          onclick={() => (viewMode = 'assembled')}>Assembled</button>
+        <button
+          class="toggle-btn" class:active={viewMode === 'simulate'}
+          onclick={() => (viewMode = 'simulate')}>Simulate</button>
+      </div>
       <div class="texture-toggle">
         <button
           class="toggle-btn" class:active={showTexture}
           onclick={() => (showTexture = !showTexture)}>Textures</button>
       </div>
+
+      <section class="meta-section">
+        <div class="meta-field">
+          <label for="job-name">Name</label>
+          <div class="meta-row">
+            <input id="job-name" type="text" placeholder="Enter name..." bind:value={jobName} />
+            <button class="meta-btn" onclick={saveName}>
+              {nameSaved ? 'Saved' : 'Save'}
+            </button>
+          </div>
+        </div>
+        <button class="meta-btn meta-btn-wide" onclick={saveView}>
+          Set Default View
+        </button>
+      </section>
+
       <PieceList pieces={result.pieces} bind:visible={pieceVisibility} />
     </aside>
   {/if}
@@ -203,6 +273,33 @@
     margin: 0;
     color: #4f8cff;
   }
+  .tab-bar {
+    display: flex;
+    gap: 0;
+    background: #2a2a3e;
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 0.45rem 0.25rem;
+    border: none;
+    background: transparent;
+    color: #888;
+    font-size: 0.75rem;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    transition: all 0.15s;
+  }
+  .tab-btn.active {
+    background: #4f8cff;
+    color: #fff;
+  }
+  .tab-btn:hover:not(.active) {
+    color: #ccc;
+  }
   .section {
     display: flex;
     flex-direction: column;
@@ -228,17 +325,6 @@
   }
   .btn-slice:hover:not(:disabled) { background: #3a7bff; }
   .btn-slice:disabled { opacity: 0.4; cursor: not-allowed; }
-  .btn-secondary {
-    padding: 0.5rem 1rem;
-    font-size: 0.85rem;
-    background: #2a2a3e;
-    color: #ccc;
-    border: 1px solid #444;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background 0.15s;
-  }
-  .btn-secondary:hover { background: #333; }
   .main {
     flex: 1;
     position: relative;
@@ -278,6 +364,57 @@
   }
   .toggle-btn.active { background: #4f8cff; color: #fff; }
   .toggle-btn:hover:not(.active) { color: #ccc; }
+  .texture-toggle {
+    flex-shrink: 0;
+  }
+  .meta-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #333;
+    flex-shrink: 0;
+  }
+  .meta-field label {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: #888;
+    margin-bottom: 0.25rem;
+  }
+  .meta-row {
+    display: flex;
+    gap: 0.35rem;
+  }
+  .meta-row input {
+    flex: 1;
+    padding: 0.35rem 0.5rem;
+    background: #222;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #eee;
+    font-size: 0.8rem;
+    min-width: 0;
+  }
+  .meta-row input:focus {
+    outline: none;
+    border-color: #4f8cff;
+  }
+  .meta-btn {
+    padding: 0.35rem 0.6rem;
+    background: #2a2a3e;
+    color: #ccc;
+    border: 1px solid #444;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+  }
+  .meta-btn:hover { background: #333; }
+  .meta-btn-wide {
+    width: 100%;
+  }
   .progress {
     padding: 0.5rem;
     background: #2a2a3e;
@@ -285,12 +422,67 @@
     font-size: 0.85rem;
     color: #4f8cff;
     font-family: monospace;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
+  .cancel-btn {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.7rem;
+    background: #444;
+    color: #ccc;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .cancel-btn:hover { background: #555; }
   .error {
     padding: 0.5rem;
     background: #3e1a1a;
     border-radius: 4px;
     font-size: 0.85rem;
     color: #ff6b6b;
+  }
+  .info-text {
+    font-size: 0.85rem;
+    color: #888;
+    padding: 0.5rem 0;
+  }
+  .job-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .job-item {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+    padding: 0.5rem;
+    background: #222;
+    border: 1px solid #333;
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: left;
+    color: #ccc;
+    font-size: 0.8rem;
+    transition: background 0.15s;
+  }
+  .job-item:hover { background: #2a2a3e; }
+  .job-name {
+    font-weight: 600;
+    color: #eee;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  .job-meta {
+    font-size: 0.7rem;
+    color: #888;
   }
 </style>

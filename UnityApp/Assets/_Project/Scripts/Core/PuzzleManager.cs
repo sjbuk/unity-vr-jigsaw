@@ -95,6 +95,8 @@ public class PuzzleManager : MonoBehaviour
         
         if (this == null) return;
 
+        CachePieceOutwardDirections(jsonCentroids);
+
         float slotSpacing = ComputeSlotSpacing(allPieces);
         if (wallGrid != null)
             wallGrid.Initialize(count, slotSpacing);
@@ -238,6 +240,26 @@ public class PuzzleManager : MonoBehaviour
         return -1;
     }
 
+    void CachePieceOutwardDirections(List<float[]> jsonCentroids)
+    {
+        Vector3 center = Vector3.zero;
+        foreach (var c in jsonCentroids)
+            center += new Vector3(c[0], c[1], c[2]);
+        center /= jsonCentroids.Count;
+
+        for (int i = 0; i < jsonCentroids.Count; i++)
+        {
+            if (!pieceLookup.TryGetValue(i, out var piece)) continue;
+            var c = jsonCentroids[i];
+            Vector3 dir = new Vector3(c[0], c[1], c[2]) - center;
+            dir.y = 0;
+            if (dir.sqrMagnitude < 0.0001f) dir = Vector3.forward;
+            dir.Normalize();
+            piece.OutwardDirection = dir;
+            piece.WallYRotationOffset = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+        }
+    }
+
     private List<float[]> ExtractCentroidsManually(string json)
     {
         var centroids = new List<float[]>();
@@ -294,7 +316,8 @@ public class PuzzleManager : MonoBehaviour
             int slotIdx = slotIndices[i];
             var piece = pieces[i];
             piece.transform.position = wallGrid.SlotPositions[slotIdx];
-            piece.transform.rotation = wallGrid.GetSlotRotation(slotIdx, playerPos);
+            Quaternion baseFacing = wallGrid.GetSlotRotation(slotIdx, playerPos);
+            piece.transform.rotation = baseFacing * Quaternion.Euler(0, piece.WallYRotationOffset, 0);
             piece.WallSlotIndex = slotIdx;
             piece.CurrentState = PieceStateEnum.OnWall;
             wallGrid.OccupySlot(slotIdx, piece.PieceId);

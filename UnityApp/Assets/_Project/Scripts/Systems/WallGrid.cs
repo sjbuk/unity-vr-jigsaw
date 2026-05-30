@@ -66,7 +66,8 @@ public class WallGrid : MonoBehaviour
             for (int c = 0; c < cols && slotIdx < pieceCount; c++)
             {
                 float x = startX + c * slotSpacing;
-                slotPositions[slotIdx] = new Vector3(x, y, comfortMinDist);
+                Vector3 localPos = new Vector3(x, y, comfortMinDist);
+                slotPositions[slotIdx] = transform.TransformPoint(localPos);
                 slotRotations[slotIdx] = Quaternion.LookRotation(Vector3.back, Vector3.up);
                 slotIdx++;
             }
@@ -105,7 +106,7 @@ public class WallGrid : MonoBehaviour
     {
         if (slotIndex < 0 || slotIndex >= slotCount) return Quaternion.identity;
 
-        Vector3 worldSlotPos = transform.TransformPoint(slotPositions[slotIndex]);
+        Vector3 worldSlotPos = slotPositions[slotIndex];
         Vector3 toPlayer = playerPosition - worldSlotPos;
         toPlayer.y = 0f;
         if (toPlayer.sqrMagnitude < 0.0001f)

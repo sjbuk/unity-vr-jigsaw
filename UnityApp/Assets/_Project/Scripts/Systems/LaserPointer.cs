@@ -40,6 +40,7 @@ public class LaserPointer : MonoBehaviour
     [HideInInspector] public bool isActive;
 
     private PieceState targetedPiece;
+    public PieceState TargetedPiece => targetedPiece;
     private Material cachedHighlightMat;
     private readonly List<(MeshRenderer renderer, Material original)> highlightedRenderers = new List<(MeshRenderer, Material)>();
 
@@ -342,5 +343,19 @@ public class LaserPointer : MonoBehaviour
         }
         highlightedRenderers.Clear();
         targetedPiece = null;
+    }
+
+    public bool TryGetOriginalMaterial(MeshRenderer renderer, out Material original)
+    {
+        foreach (var (r, mat) in highlightedRenderers)
+        {
+            if (r == renderer)
+            {
+                original = mat;
+                return true;
+            }
+        }
+        original = null;
+        return false;
     }
 }

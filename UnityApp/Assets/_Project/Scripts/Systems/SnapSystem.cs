@@ -91,7 +91,8 @@ public class SnapSystem : MonoBehaviour
 
     void Update()
     {
-        DebugUpdate();
+        if (enableDebugLogging)
+            DebugUpdate();
 
         if (pieceRegistry == null || adjacencyMap == null || clusters == null) return;
 
@@ -235,6 +236,7 @@ public class SnapSystem : MonoBehaviour
         }
     }
 
+    [SerializeField] private bool enableDebugLogging = false;
     private float _debugTimer;
     private const float _debugLogInterval = 0.5f;
 

@@ -1,31 +1,21 @@
 <script lang="ts">
-  import { open } from '@tauri-apps/plugin-dialog';
+  let { file = $bindable(null as File | null) }: { file?: File | null } = $props();
+  let inputEl: HTMLInputElement;
 
-  let { selectedPath = $bindable('') }: { selectedPath?: string } = $props();
-
-  async function pickFile() {
-    const result = await open({
-      multiple: false,
-      filters: [
-        {
-          name: '3D Models',
-          extensions: ['glb', 'gltf'],
-        },
-      ],
-    });
-    if (result) {
-      selectedPath = result;
-    }
+  function onChange() {
+    file = inputEl.files?.[0] ?? null;
   }
 </script>
 
 <div class="file-picker">
-  <button onclick={pickFile} class="btn btn-primary">
-    Browse…
+  <button onclick={() => inputEl.click()} class="btn btn-primary">
+    Browse...
   </button>
-  {#if selectedPath}
-    <span class="file-path" title={selectedPath}>
-      {selectedPath.split(/[/\\]/).pop()}
+  <input bind:this={inputEl} type="file" accept=".glb,.gltf"
+         onchange={onChange} style="display:none" />
+  {#if file}
+    <span class="file-path" title={file.name}>
+      {file.name}
     </span>
   {:else}
     <span class="file-path placeholder">No model selected</span>

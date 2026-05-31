@@ -286,3 +286,120 @@ def generate_preview(
             file=sys.stderr,
         )
         return False
+
+
+def _get_uv_040(mesh: trimesh.Trimesh) -> np.ndarray | None:
+    n = len(mesh.vertices)
+    if (
+        hasattr(mesh.visual, "uv")
+        and mesh.visual.uv is not None
+        and mesh.visual.uv.size == n * 2
+    ):
+        return mesh.visual.uv.copy().reshape(-1, 2).astype(np.float32)
+    return None
+
+
+def generate_lowpoly_preview(
+    mesh: trimesh.Trimesh,
+    output_path: str,
+    target_faces: int = 2000,
+) -> bool:
+    """
+    Generate a low-poly preview mesh via vertex clustering and export as GLB.
+
+    The simplified mesh is scaled to fit within a [2 wide, 1 high, 1 deep]
+    box preserving proportions, centred on X/Z, and grounded at Y=0.
+
+    Parameters
+    ----------
+    mesh : trimesh.Trimesh
+        The original (post-normalisation) mesh.
+    output_path : str
+        Full path for the output GLB file.
+    target_faces : int
+        Approximate number of faces in the simplified mesh.
+
+    Returns
+    -------
+    success : bool
+    """
+    try:
+        # ---- 1.  vertex clustering ----
+        extents = mesh.bounding_box.extents
+        max_extent = float(extents.max())
+        if max_extent < 1e-10:
+            return False
+
+        cells_per_axis = max(4, int(round((target_faces / 3.0) ** (1.0 / 3.0))))
+        cell_size = max_extent / max(cells_per_axis, 1)
+        origin = mesh.bounding_box.bounds[0].copy()
+
+        verts = mesh.vertices.copy()
+        cell_indices = np.floor((verts - origin) / cell_size).astype(np.int32)
+
+        unique_cells, inverse, counts = np.unique(
+            cell_indices, axis=0, return_inverse=True, return_counts=True,
+        )
+        n_cells = len(unique_cells)
+
+        new_verts = np.zeros((n_cells, 3), dtype=verts.dtype)
+        np.add.at(new_verts, inverse, verts)
+        new_verts /= counts[:, np.newaxis]
+
+        faces = mesh.faces
+        remapped = inverse[faces]
+
+        valid = (
+            (remapped[:, 0] != remapped[:, 1])
+            & (remapped[:, 1] != remapped[:, 2])
+            & (remapped[:, 0] != remapped[:, 2])
+        )
+        new_faces = remapped[valid].copy()
+
+        used_verts = np.unique(new_faces.ravel())
+        vert_remap = np.full(n_cells, -1, dtype=np.int64)
+        vert_remap[used_verts] = np.arange(len(used_verts))
+        new_verts = new_verts[used_verts].copy()
+        new_faces = vert_remap[new_faces]
+
+        preview = trimesh.Trimesh(vertices=new_verts, faces=new_faces, process=False)
+
+        # ---- 2.  preserve UVs and material ----
+        src_uv = _get_uv_040(mesh)
+        if src_uv is not None:
+            cell_uv = np.zeros((n_cells, 2), dtype=src_uv.dtype)
+            np.add.at(cell_uv, inverse, src_uv)
+            cell_uv /= counts[:, np.newaxis]
+            cell_uv = cell_uv[used_verts].copy()
+            preview.visual = trimesh.visual.TextureVisuals(uv=cell_uv)
+            if hasattr(mesh.visual, "material") and mesh.visual.material is not None:
+                preview.visual.material = mesh.visual.material
+
+        # ---- 3.  scale to fit [2 x 1 x 1] box, preserve proportions ----
+        target_box = np.array([2.0, 1.0, 1.0], dtype=np.float64)
+        preview_extents = preview.bounding_box.extents
+        scale = float(np.min(target_box / np.where(preview_extents < 1e-10, 1e10, preview_extents)))
+        preview.vertices *= scale
+
+        bbox = preview.bounding_box
+        preview.vertices[:, 0] -= bbox.centroid[0]
+        preview.vertices[:, 2] -= bbox.centroid[2]
+        preview.vertices[:, 1] -= bbox.bounds[0, 1]
+
+        # ---- 4.  export ----
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+        preview.export(output_path)
+        print(
+            f"[Phase 4]   low-poly preview: {len(preview.vertices)} verts, "
+            f"{len(preview.faces)} faces ({cells_per_axis}^3 grid)",
+            file=sys.stderr,
+            flush=True,
+        )
+        return True
+
+    except Exception:
+        print(
+            f"[Phase 4] WARNING: Could not generate low-poly preview",
+            file=sys.stderr,
+        )
+        return False

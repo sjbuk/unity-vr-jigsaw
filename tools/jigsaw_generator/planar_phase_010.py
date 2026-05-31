@@ -18,9 +18,12 @@ def load_model(path: str) -> trimesh.Trimesh:
 
 
 def normalize_mesh(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
-    """Center mesh at origin and scale to unit bounding box."""
+    """Scale mesh to unit bounding box, center X/Z, ground Y=0 (lowest point at origin)."""
     mesh = mesh.copy()
-    mesh.vertices -= mesh.bounding_box.centroid
     scale = 1.0 / max(mesh.bounding_box.extents)
     mesh.vertices *= scale
+    bbox = mesh.bounding_box
+    mesh.vertices[:, 0] -= bbox.centroid[0]
+    mesh.vertices[:, 2] -= bbox.centroid[2]
+    mesh.vertices[:, 1] -= bbox.bounds[0, 1]
     return mesh

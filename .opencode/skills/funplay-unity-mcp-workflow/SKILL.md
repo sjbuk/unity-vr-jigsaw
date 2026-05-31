@@ -24,6 +24,7 @@ Use this skill when an AI agent is working in a Unity project and needs to verif
    - Use null guards for every object lookup and return explicit missing-path messages.
    - Return concise before/after values from snippets.
    - Save only the assets or scenes intentionally modified.
+   - **Do NOT modify GameObject hierarchy in scenes or prefabs through code or MCP tools.** Adding, removing, or restructuring GameObjects (children, parents, siblings) inside prefabs and scene hierarchies is fragile through automation. Instead, give the user clear step-by-step instructions to do it manually in the Unity Editor, and move on to code-side changes.
 4. Validate.
    - Read back the changed objects through MCP.
    - For file edits, call `request_recompile`, then `wait_for_compilation`, then inspect console or compilation errors.

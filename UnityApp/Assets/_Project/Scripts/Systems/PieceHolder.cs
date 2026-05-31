@@ -34,10 +34,30 @@ public class PieceHolder : MonoBehaviour
     /// <summary>Whether this holder is currently holding a piece.</summary>
     public bool IsHolding => heldPiece != null;
 
+    private Vector3 pieceLocalOffset;      // Offset from attachPoint to piece (in local space)
+    private Quaternion pieceLocalRotation;  // Piece rotation relative to hand
+
     void Start()
     {
         if (snapSystem == null)
             snapSystem = FindObjectOfType<SnapSystem>();
+    }
+
+    void LateUpdate()
+    {
+        if (IsHolding && heldPiece != null)
+        {
+            var cluster = (snapSystem != null) ? snapSystem.GetClusterPieceStates(heldPiece.ClusterId) : new List<PieceState> { heldPiece };
+
+            Vector3 targetPos = attachPoint.TransformPoint(pieceLocalOffset);
+            Quaternion targetRot = attachPoint.rotation * pieceLocalRotation;
+
+            foreach (var p in cluster)
+            {
+                p.transform.position = targetPos;
+                p.transform.rotation = targetRot;
+            }
+        }
     }
 
     /// <summary>Grabs a piece, attaches it to the holder, and deactivates the laser.</summary>
@@ -45,6 +65,8 @@ public class PieceHolder : MonoBehaviour
     /// <param name="keepWorldPosition">If true, preserves the piece's current world position (for local grab).</param>
     public void GrabPiece(PieceState piece, bool keepWorldPosition = false)
     {
+        double t0 = Time.realtimeSinceStartupAsDouble;
+
         if (piece == null) return;
         if (IsHolding && heldPiece != piece) return;
 
@@ -56,39 +78,28 @@ public class PieceHolder : MonoBehaviour
         {
             if (wallGrid != null && p.WallSlotIndex >= 0)
                 wallGrid.VacateSlot(p.WallSlotIndex);
-            
+
             p.TransitionTo(PieceStateEnum.InHand);
         }
 
-        if (keepWorldPosition)
+        if (!keepWorldPosition)
         {
-            foreach (var p in cluster)
-                p.transform.SetParent(attachPoint, worldPositionStays: true);
-        }
-        else
-        {
-            // To maintain cluster integrity while aligning the primary piece to the hand:
-            // 1. Parent all other cluster members to the primary piece temporarily.
-            foreach (var p in cluster)
-            {
-                if (p == piece) continue;
-                p.transform.SetParent(piece.transform, worldPositionStays: true);
-            }
-
-            // 2. Attach the primary piece to the hand (this changes its rotation/position).
             float zOffset = GetPieceHoldLocalZOffset(piece);
-            piece.AttachToHand(gameObject, attachPoint, new Vector3(0, 0, zOffset));
-
-            // 3. Move other cluster members back to being siblings of the primary piece under attachPoint.
+            Vector3 targetWorldPos = attachPoint.TransformPoint(new Vector3(0, 0, zOffset));
+            Vector3 delta = targetWorldPos - piece.transform.position;
             foreach (var p in cluster)
-            {
-                if (p == piece) continue;
-                p.transform.SetParent(attachPoint, worldPositionStays: true);
-            }
+                p.transform.position += delta;
         }
+
+        pieceLocalOffset = attachPoint.InverseTransformPoint(piece.transform.position);
+        pieceLocalRotation = Quaternion.Inverse(attachPoint.rotation) * piece.transform.rotation;
 
         if (laserPointer != null)
             laserPointer.isActive = false;
+
+        float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
+        if (ms > 0.1f)
+            Debug.Log($"[Perf F:{Time.frameCount}] GrabPiece clusterSize={cluster.Count}: {ms:F2}ms");
     }
 
     /// <summary>Computes the local Z offset so the piece's closest face is exactly faceGrabDistance from the attach point.</summary>
@@ -106,6 +117,8 @@ public class PieceHolder : MonoBehaviour
     /// <summary>Attempts to grab the nearest interactable piece within localGrabRadius of the attach point.</summary>
     public bool TryLocalGrab()
     {
+        double t0 = Time.realtimeSinceStartupAsDouble;
+
         Collider[] hits = Physics.OverlapSphere(attachPoint.position, localGrabRadius, pieceLayerMask);
         PieceState closest = null;
         float closestDist = float.MaxValue;
@@ -124,6 +137,8 @@ public class PieceHolder : MonoBehaviour
             }
         }
 
+        Debug.Log($"[Grab F:{Time.frameCount}] TryLocalGrab hits={hits.Length} closest={closest?.PieceId}: {(float)(Time.realtimeSinceStartupAsDouble - t0)*1000f:F2}ms");
+
         if (closest != null)
         {
             GrabPiece(closest, keepWorldPosition: true);
@@ -135,6 +150,8 @@ public class PieceHolder : MonoBehaviour
     /// <summary>Releases the held piece, leaving it floating in place.</summary>
     public void ReleasePiece()
     {
+        double t0 = Time.realtimeSinceStartupAsDouble;
+
         if (!IsHolding) return;
 
         var cluster = (snapSystem != null) ? snapSystem.GetClusterPieceStates(heldPiece.ClusterId) : new List<PieceState> { heldPiece };
@@ -143,6 +160,9 @@ public class PieceHolder : MonoBehaviour
             p.DetachFromHand();
         }
         heldPiece = null;
+
+        float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
+        Debug.Log($"[Perf F:{Time.frameCount}] ReleasePiece clusterSize={cluster.Count}: {ms:F2}ms");
     }
 
     /// <summary>Flies the held piece back to the nearest empty wall slot.</summary>

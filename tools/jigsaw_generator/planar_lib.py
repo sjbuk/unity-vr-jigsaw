@@ -17,6 +17,7 @@ class Config:
     adjacency_threshold: float = 0.01
     preview_resolution: int = 1024
     preview_height: int = 512
+    preview_faces: int = 2000
 
     def validate(self) -> None:
         if self.pieces < 2:
@@ -25,6 +26,8 @@ class Config:
             raise ValueError("gap must be >= 0")
         if self.adjacency_threshold < 0.0:
             raise ValueError("adjacency_threshold must be >= 0")
+        if self.preview_faces < 4:
+            raise ValueError("preview_faces must be >= 4")
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "Config":
@@ -38,6 +41,7 @@ class Config:
             adjacency_threshold=args.adjacency_threshold,
             preview_resolution=args.preview_resolution,
             preview_height=args.preview_height,
+            preview_faces=args.preview_faces,
         )
 
 
@@ -59,4 +63,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="Preview thumbnail width in pixels (default: 1024)")
     parser.add_argument("--preview-height", type=int, default=512,
                         help="Preview thumbnail height in pixels (default: 512)")
+    parser.add_argument("--preview-faces", type=int, default=2000,
+                        help="Low-poly preview target face count (default: 2000)")
     return parser

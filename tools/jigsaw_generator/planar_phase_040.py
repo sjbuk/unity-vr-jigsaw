@@ -10,6 +10,7 @@ import sys
 
 import numpy as np
 import trimesh
+from scipy.spatial import cKDTree
 
 
 def compute_adjacency(
@@ -286,3 +287,120 @@ def generate_preview(
             file=sys.stderr,
         )
         return False
+
+
+def _get_uv_040(mesh: trimesh.Trimesh) -> np.ndarray | None:
+    n = len(mesh.vertices)
+    if (
+        hasattr(mesh.visual, "uv")
+        and mesh.visual.uv is not None
+        and mesh.visual.uv.size == n * 2
+    ):
+        return mesh.visual.uv.copy().reshape(-1, 2).astype(np.float32)
+    return None
+
+
+def _simplify_fast(mesh: trimesh.Trimesh, target_faces: int) -> "tuple[np.ndarray, np.ndarray, np.ndarray | None]":
+    """Simplify via quadric edge collapse (fast_simplification). UVs transferred via nearest-neighbour."""
+    from fast_simplification import simplify
+
+    verts_in = np.asarray(mesh.vertices, dtype=np.float64)
+    faces_in = np.asarray(mesh.faces, dtype=np.int32)
+    uvs = _get_uv_040(mesh)
+
+    verts_out, faces_out = simplify(
+        verts_in, faces_in,
+        target_count=target_faces,
+        agg=7.0,
+    )
+
+    if uvs is not None and len(verts_out) > 0 and len(verts_in) > 0:
+        tree = cKDTree(verts_in)
+        _, nn_idx = tree.query(verts_out)
+        uvs_out = uvs[nn_idx].copy()
+    else:
+        uvs_out = None
+
+    return verts_out, faces_out, uvs_out
+
+
+def generate_lowpoly_preview(
+    mesh: trimesh.Trimesh,
+    output_path: str,
+    target_faces: int = 2000,
+) -> "tuple[int | None, int | None]":
+    """
+    Generate a low-poly preview mesh via quadric edge collapse and export as GLB.
+
+    Uses ``fast_simplification`` (quadric edge collapse) for high-quality
+    simplification that preserves UVs.  The simplified mesh is scaled to fit
+    within a [2 wide, 1 high, 1 deep] box preserving proportions, centred on
+    X/Z, and grounded at Y=0.
+
+    Parameters
+    ----------
+    mesh : trimesh.Trimesh
+        The original (post-normalisation) mesh.
+    output_path : str
+        Full path for the output GLB file.
+    target_faces : int
+        Exact target face count for simplification.
+
+    Returns
+    -------
+    (verts_out, faces_out) or (None, None) on failure.
+    """
+    try:
+        extents = mesh.bounding_box.extents
+        if float(extents.max()) < 1e-10:
+            return None, None
+
+        # ---- 1.  quadric edge collapse simplification ----
+        try:
+            new_verts, new_faces, new_uvs = _simplify_fast(mesh, target_faces)
+        except ImportError:
+            print(
+                "[Phase 4] WARNING: fast_simplification not installed; "
+                "install with: pip install fast_simplification",
+                file=sys.stderr,
+            )
+            return None, None
+
+        # ---- 2.  build preview mesh ----
+        preview = trimesh.Trimesh(
+            vertices=new_verts, faces=new_faces, process=False,
+        )
+        if new_uvs is not None:
+            preview.visual = trimesh.visual.TextureVisuals(uv=new_uvs)
+            if hasattr(mesh.visual, "material") and mesh.visual.material is not None:
+                preview.visual.material = mesh.visual.material
+
+        # ---- 3.  scale to fit [2 x 1 x 1] box, preserve proportions ----
+        target_box = np.array([2.0, 1.0, 1.0], dtype=np.float64)
+        preview_extents = preview.bounding_box.extents
+        scale = float(np.min(target_box / np.where(preview_extents < 1e-10, 1e10, preview_extents)))
+        preview.vertices *= scale
+
+        bbox = preview.bounding_box
+        preview.vertices[:, 0] -= bbox.centroid[0]
+        preview.vertices[:, 2] -= bbox.centroid[2]
+        preview.vertices[:, 1] -= bbox.bounds[0, 1]
+
+        # ---- 4.  export ----
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+        preview.export(output_path)
+        print(
+            f"[Phase 4]   low-poly preview: {len(preview.vertices)} verts, "
+            f"{len(preview.faces)} faces (quadric edge collapse, "
+            f"target={target_faces})",
+            file=sys.stderr,
+            flush=True,
+        )
+        return len(preview.vertices), len(preview.faces)
+
+    except Exception as exc:
+        print(
+            f"[Phase 4] WARNING: Could not generate low-poly preview: {exc}",
+            file=sys.stderr,
+        )
+        return None, None

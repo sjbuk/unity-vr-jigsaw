@@ -2,23 +2,35 @@
   import * as THREE from 'three';
   import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-  import { convertFileSrc } from '@tauri-apps/api/core';
-  import type { ViewMode } from '../types';
+  import { outputUrl } from './api';
+  import type { ViewMode, CameraOrientation } from '../types';
 
   let {
     piecePaths = $bindable([]),
     backPiecePaths = $bindable([]),
     consolidatedPath = $bindable(''),
+    jobId = $bindable(''),
     viewMode = $bindable<ViewMode>('split'),
     pieceVisible = $bindable<boolean[]>([]),
     showTexture = $bindable(false),
+    cameraCaptureRef = $bindable(null as (() => CameraOrientation) | null),
+    initialOrientation = $bindable(null as CameraOrientation | null),
+    totalFaces = $bindable(0),
+    previewPath = $bindable(''),
+    showPreview = $bindable(false),
   }: {
     piecePaths?: string[];
     backPiecePaths?: string[];
     consolidatedPath?: string;
+    jobId?: string;
     viewMode?: ViewMode;
     pieceVisible?: boolean[];
     showTexture?: boolean;
+    cameraCaptureRef?: (() => CameraOrientation) | null;
+    initialOrientation?: CameraOrientation | null;
+    totalFaces?: number;
+    previewPath?: string;
+    showPreview?: boolean;
   } = $props();
 
   let container: HTMLDivElement;
@@ -31,22 +43,26 @@
 
   const meshes: THREE.Mesh[] = [];
   const originalMaterials: (THREE.Material | THREE.Material[] | null)[] = [];
-const meshPieceIndex: number[] = [];
-let loader: GLTFLoader;
+  const meshPieceIndex: number[] = [];
+  let loader: GLTFLoader;
 
-let raycaster: THREE.Raycaster | null = null;
-let dragOffset = new THREE.Vector3();
-let dragPlane = new THREE.Plane();
-let pieceTargets: Map<number, { pos: THREE.Vector3; quat: THREE.Quaternion }> = new Map();
-let relativeOffsets: Map<string, THREE.Vector3> = new Map();
-let clusterMembers: Map<number, Set<number>> = new Map();
-let pieceCluster: Map<number, number> = new Map();
-let draggedClusterId: number | null = null;
-let draggedPieceIndices: Set<number> | null = null;
-let dragRefPieceIdx: number | null = null;
-let mouseNDC = new THREE.Vector2();
-let isSimDragging = false;
-let cleanupSimListeners: (() => void) | null = null;
+  let raycaster: THREE.Raycaster | null = null;
+  let dragOffset = new THREE.Vector3();
+  let dragPlane = new THREE.Plane();
+  let pieceTargets: Map<number, { pos: THREE.Vector3; quat: THREE.Quaternion }> = new Map();
+  let relativeOffsets: Map<string, THREE.Vector3> = new Map();
+  let clusterMembers: Map<number, Set<number>> = new Map();
+  let pieceCluster: Map<number, number> = new Map();
+  let draggedClusterId: number | null = null;
+  let draggedPieceIndices: Set<number> | null = null;
+  let dragRefPieceIdx: number | null = null;
+  let mouseNDC = new THREE.Vector2();
+  let isSimDragging = false;
+  let cleanupSimListeners: (() => void) | null = null;
+
+  function srcUrl(relPath: string): string {
+    return outputUrl(jobId, relPath);
+  }
 
   function init() {
     if (!container) return;
@@ -66,6 +82,11 @@ let cleanupSimListeners: (() => void) | null = null;
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.update();
+
+    cameraCaptureRef = () => ({
+      position: [camera!.position.x, camera!.position.y, camera!.position.z],
+      target: [controls!.target.x, controls!.target.y, controls!.target.z],
+    });
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.5));
     scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.8));
@@ -143,14 +164,11 @@ let cleanupSimListeners: (() => void) | null = null;
     const n = pieceTargets.size;
     const cols = Math.ceil(Math.sqrt(n));
     const rows = Math.ceil(n / cols);
-
     const pieceApprox = Math.max(size.x, size.y) / Math.max(cols, rows);
     const cellSize = Math.max(pieceApprox * 4.0, 0.4);
-
     const gridHeight = (rows - 1) * cellSize;
     const minY = center.y - gridHeight / 2;
     const yOffset = Math.max(0, 0.1 - minY);
-
     const sortedIndices = Array.from(pieceTargets.keys()).sort((a, b) => a - b);
     for (let i = 0; i < sortedIndices.length; i++) {
       const pieceIdx = sortedIndices[i];
@@ -158,15 +176,9 @@ let cleanupSimListeners: (() => void) | null = null;
       const row = Math.floor(i / cols);
       const offsetX = (col - (cols - 1) / 2) * cellSize;
       const offsetY = ((rows - 1) / 2 - row) * cellSize;
-      const pos = new THREE.Vector3(
-        center.x + offsetX,
-        center.y + offsetY + yOffset,
-        center.z,
-      );
+      const pos = new THREE.Vector3(center.x + offsetX, center.y + offsetY + yOffset, center.z);
       for (let j = 0; j < meshes.length; j++) {
-        if (meshPieceIndex[j] === pieceIdx) {
-          meshes[j].position.copy(pos);
-        }
+        if (meshPieceIndex[j] === pieceIdx) meshes[j].position.copy(pos);
       }
     }
   }
@@ -175,7 +187,6 @@ let cleanupSimListeners: (() => void) | null = null;
     cleanupSimListeners?.();
     if (!renderer || !camera || !controls) return;
     const el = renderer.domElement;
-
     const camDir = new THREE.Vector3();
     const planeHit = new THREE.Vector3();
 
@@ -231,9 +242,7 @@ let cleanupSimListeners: (() => void) | null = null;
         if (!refMesh) return;
         const delta = new THREE.Vector3().copy(newRefPos).sub(refMesh.position);
         for (let i = 0; i < meshes.length; i++) {
-          if (draggedPieceIndices.has(meshPieceIndex[i])) {
-            meshes[i].position.add(delta);
-          }
+          if (draggedPieceIndices.has(meshPieceIndex[i])) meshes[i].position.add(delta);
         }
 
         let bestDist = Infinity;
@@ -243,14 +252,12 @@ let cleanupSimListeners: (() => void) | null = null;
         for (const draggedIdx of draggedPieceIndices) {
           const draggedPos = getPiecePosition(draggedIdx);
           if (!draggedPos) continue;
-
           for (const [otherIdx, otherClusterId] of pieceCluster) {
             if (otherClusterId === draggedClusterId) continue;
             const relOffset = relativeOffsets.get(`${draggedIdx}|${otherIdx}`);
             if (!relOffset) continue;
             const otherPos = getPiecePosition(otherIdx);
             if (!otherPos) continue;
-
             const expectedPos = otherPos.clone().add(relOffset);
             const dist = draggedPos.distanceTo(expectedPos);
             if (dist < bestDist) {
@@ -263,9 +270,7 @@ let cleanupSimListeners: (() => void) | null = null;
 
         if (bestDist < snapRadius && bestTargetClusterId !== null) {
           for (let i = 0; i < meshes.length; i++) {
-            if (draggedPieceIndices.has(meshPieceIndex[i])) {
-              meshes[i].position.add(bestSnapDelta);
-            }
+            if (draggedPieceIndices.has(meshPieceIndex[i])) meshes[i].position.add(bestSnapDelta);
           }
           const targetCluster = clusterMembers.get(bestTargetClusterId)!;
           for (const pi of draggedPieceIndices) {
@@ -307,6 +312,13 @@ let cleanupSimListeners: (() => void) | null = null;
     };
   }
 
+  function applyOrientation(ori: CameraOrientation | null) {
+    if (!ori || !camera || !controls) return;
+    camera.position.set(ori.position[0], ori.position[1], ori.position[2]);
+    controls.target.set(ori.target[0], ori.target[1], ori.target[2]);
+    controls.update();
+  }
+
   function fitCamera() {
     if (!controls || !camera || meshes.length === 0) return;
     const box = new THREE.Box3();
@@ -316,6 +328,20 @@ let cleanupSimListeners: (() => void) | null = null;
     controls.target.copy(center);
     camera.position.set(center.x + size * 1.2, center.y + size * 0.5, center.z + size * 1.2);
     controls.update();
+  }
+
+  function countTotalFaces(meshes: THREE.Mesh[]): number {
+    let count = 0;
+    for (const m of meshes) {
+      if (!m.geometry) continue;
+      const idx = m.geometry.index;
+      if (idx) {
+        count += idx.count / 3;
+      } else if (m.geometry.attributes.position) {
+        count += m.geometry.attributes.position.count / 3;
+      }
+    }
+    return Math.floor(count);
   }
 
   function clearScene() {
@@ -342,27 +368,18 @@ let cleanupSimListeners: (() => void) | null = null;
     if (!scene) return;
     clearScene();
 
-    type LoadResult = {
-      meshes: THREE.Mesh[];
-      center: THREE.Vector3;
-      index: number;
-    };
+    type LoadResult = { meshes: THREE.Mesh[]; center: THREE.Vector3; index: number };
 
     const allPaths: { path: string; index: number }[] = [];
-    for (let i = 0; i < frontPaths.length; i++) {
-      allPaths.push({ path: frontPaths[i], index: i });
-    }
-    for (let i = 0; i < backPaths.length; i++) {
-      allPaths.push({ path: backPaths[i], index: i });
-    }
+    for (let i = 0; i < frontPaths.length; i++) allPaths.push({ path: frontPaths[i], index: i });
+    for (let i = 0; i < backPaths.length; i++) allPaths.push({ path: backPaths[i], index: i });
 
     const results = await Promise.all(
       allPaths.map(async ({ path, index }) => {
-        try {
-          const url = convertFileSrc(path);
-          const gltf = await loader.loadAsync(url);
+    try {
+      const url = `${srcUrl(path)}?ts=${Date.now()}`;
+      const gltf = await loader.loadAsync(url);
           if (gen !== loadingGen) return null;
-
           let box = new THREE.Box3();
           const found: THREE.Mesh[] = [];
           gltf.scene.traverse((child) => {
@@ -384,9 +401,7 @@ let cleanupSimListeners: (() => void) | null = null;
     const centers: THREE.Vector3[] = [];
     for (const r of results) {
       if (!r) continue;
-      for (const m of r.meshes) {
-        addMesh(m, r.index);
-      }
+      for (const m of r.meshes) addMesh(m, r.index);
       if (!centers[r.index]) centers[r.index] = r.center;
     }
 
@@ -407,6 +422,7 @@ let cleanupSimListeners: (() => void) | null = null;
 
     applyVisibility();
     fitCamera();
+    applyOrientation(initialOrientation);
   }
 
   async function loadAssembled(path: string) {
@@ -415,28 +431,25 @@ let cleanupSimListeners: (() => void) | null = null;
     clearScene();
 
     try {
-      const url = convertFileSrc(path);
+      const url = srcUrl(path);
       const gltf = await loader.loadAsync(url);
       if (gen !== loadingGen) return;
-
-      if (!gltf || !gltf.scene) {
-        throw new Error('Failed to parse GLB: scene missing');
-      }
+      if (!gltf || !gltf.scene) throw new Error('Failed to parse GLB: scene missing');
 
       let fallbackIdx = 0;
       const found: THREE.Mesh[] = [];
       gltf.scene.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          found.push(child);
-        }
+        if (child instanceof THREE.Mesh) found.push(child);
       });
       for (const child of found) {
         const nameMatch = child.name.match(/^piece_(\d+)/);
         const pieceIdx = nameMatch ? parseInt(nameMatch[1], 10) : fallbackIdx++;
         addMesh(child, pieceIdx);
       }
+      if (found.length > 0 && totalFaces === 0) totalFaces = countTotalFaces(found);
       applyVisibility();
       fitCamera();
+      applyOrientation(initialOrientation);
     } catch (err) {
       loadError = `Assembled: ${err instanceof Error ? err.message : String(err)}`;
     }
@@ -457,27 +470,20 @@ let cleanupSimListeners: (() => void) | null = null;
     if (!raycaster) raycaster = new THREE.Raycaster();
 
     try {
-      const url = convertFileSrc(path);
+      const url = srcUrl(path);
       const gltf = await loader.loadAsync(url);
       if (gen !== loadingGen) return;
-      if (!gltf || !gltf.scene) {
-        throw new Error('Failed to parse GLB: scene missing');
-      }
+      if (!gltf || !gltf.scene) throw new Error('Failed to parse GLB: scene missing');
 
       let fallbackIdx = 0;
       const found: THREE.Mesh[] = [];
       gltf.scene.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          found.push(child);
-        }
+        if (child instanceof THREE.Mesh) found.push(child);
       });
       for (const child of found) {
         const nameMatch = child.name.match(/^piece_(\d+)/);
         const pieceIdx = nameMatch ? parseInt(nameMatch[1], 10) : fallbackIdx++;
-        pieceTargets.set(pieceIdx, {
-          pos: child.position.clone(),
-          quat: child.quaternion.clone(),
-        });
+        pieceTargets.set(pieceIdx, { pos: child.position.clone(), quat: child.quaternion.clone() });
         addMesh(child, pieceIdx);
       }
 
@@ -494,10 +500,7 @@ let cleanupSimListeners: (() => void) | null = null;
         const expandedA = boxA.clone().expandByScalar(adjacencyThreshold);
         for (const [idxB, boxB] of pieceBounds) {
           if (idxA === idxB) continue;
-          if (expandedA.intersectsBox(boxB)) {
-            neighborPairs.add(`${idxA}|${idxB}`);
-            neighborPairs.add(`${idxB}|${idxA}`);
-          }
+          if (expandedA.intersectsBox(boxB)) { neighborPairs.add(`${idxA}|${idxB}`); neighborPairs.add(`${idxB}|${idxA}`); }
         }
       }
 
@@ -516,9 +519,35 @@ let cleanupSimListeners: (() => void) | null = null;
       arrangeOnWall();
       applyVisibility();
       fitCamera();
+      applyOrientation(initialOrientation);
       setupSimListeners();
     } catch (err) {
       loadError = `Simulate: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  async function loadPreview(path: string) {
+    const gen = ++loadingGen;
+    if (!scene) return;
+    clearScene();
+
+    try {
+      const url = srcUrl(path);
+      const gltf = await loader.loadAsync(url);
+      if (gen !== loadingGen) return;
+      if (!gltf || !gltf.scene) throw new Error('Failed to parse preview GLB: scene missing');
+
+      const found: THREE.Mesh[] = [];
+      gltf.scene.traverse((child) => {
+        if (child instanceof THREE.Mesh) found.push(child);
+      });
+      for (let i = 0; i < found.length; i++) {
+        addMesh(found[i], i);
+      }
+      fitCamera();
+      applyOrientation(initialOrientation);
+    } catch (err) {
+      loadError = `Preview: ${err instanceof Error ? err.message : String(err)}`;
     }
   }
 
@@ -526,13 +555,18 @@ let cleanupSimListeners: (() => void) | null = null;
     const paths = piecePaths;
     const bpaths = backPiecePaths;
     const cpath = consolidatedPath;
+    const ppath = previewPath;
+    const preview = showPreview;
     const mode = viewMode;
+    const jid = jobId;
 
-    if (!container) return;
+    if (!container || !jid) return;
     if (!renderer) init();
     if (!scene) return;
 
-    if (mode === 'split' && paths.length > 0) {
+    if (preview && ppath) {
+      loadPreview(ppath);
+    } else if (mode === 'split' && paths.length > 0) {
       loadSplitPieces(paths, bpaths);
     } else if (mode === 'assembled' && cpath) {
       loadAssembled(cpath);
@@ -572,7 +606,7 @@ let cleanupSimListeners: (() => void) | null = null;
 
 <div bind:this={container} class="viewer">
   {#if !piecePaths.length && !consolidatedPath}
-    <div class="placeholder">Select a model or folder to begin</div>
+    <div class="placeholder">Select a model or job to begin</div>
   {/if}
   {#if loadError}
     <div class="error-msg">{loadError}</div>

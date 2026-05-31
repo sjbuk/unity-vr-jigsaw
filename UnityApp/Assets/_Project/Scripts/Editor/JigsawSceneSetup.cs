@@ -71,6 +71,7 @@ public class JigsawSceneSetup : EditorWindow
         CreateDirectionalLight();
         CreateEventSystem();
         GameObject xrOrigin = CreateXROrigin();
+        DisableTeleportOnControllers(xrOrigin);
         GameObject puzzleManager = new GameObject("Puzzle Manager");
         puzzleManager.AddComponent<PuzzleManager>();
 
@@ -544,6 +545,29 @@ public class JigsawSceneSetup : EditorWindow
         pieceHolder.laserPointer = laser;
 
         laser.pieceHolder = pieceHolder;
+    }
+
+    static void DisableTeleportOnControllers(GameObject xrOrigin)
+    {
+        if (xrOrigin == null) return;
+        var camOffset = xrOrigin.transform.Find("Camera Floor Offset");
+        if (camOffset == null) return;
+
+        foreach (Transform controller in camOffset)
+        {
+            if (controller.name != "Left Controller" && controller.name != "Right Controller")
+                continue;
+
+            var teleportChild = controller.Find("Teleport Interactor");
+            if (teleportChild != null)
+                teleportChild.gameObject.SetActive(false);
+
+            foreach (var nf in controller.GetComponents<UnityEngine.XR.Interaction.Toolkit.Interactors.NearFarInteractor>())
+            {
+                nf.enableNearCasting = false;
+                nf.enableFarCasting = false;
+            }
+        }
     }
 
     static void LinkPuzzleSceneReferences(GameObject puzzleManager, GameObject wallGrid, GameObject snapSystem,

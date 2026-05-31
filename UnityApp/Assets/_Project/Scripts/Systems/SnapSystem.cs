@@ -91,6 +91,8 @@ public class SnapSystem : MonoBehaviour
 
     void Update()
     {
+        double t0 = Time.realtimeSinceStartupAsDouble;
+
         if (enableDebugLogging)
             DebugUpdate();
 
@@ -197,26 +199,37 @@ public class SnapSystem : MonoBehaviour
         return true;
     }
 
-    /// <summary>Checks all piece pairs in different clusters and snaps the first valid pair.</summary>
+    /// <summary>Checks held pieces from opposite hands for snapping (optimized from O(n²) to O(held_count²)).</summary>
     private void TrySnapAny()
     {
+        double t0 = Time.realtimeSinceStartupAsDouble;
+
         if (pieceRegistry == null || adjacencyMap == null || clusters == null) return;
 
-        foreach (var kvpA in pieceRegistry)
+        if (leftHolder != null && rightHolder != null && leftHolder.IsHolding && rightHolder.IsHolding)
         {
-            foreach (var kvpB in pieceRegistry)
+            var leftCluster = GetClusterMembers(leftHolder.heldPiece);
+            var rightCluster = GetClusterMembers(rightHolder.heldPiece);
+
+            if (leftCluster != null && rightCluster != null)
             {
-                if (kvpA.Key >= kvpB.Key) continue;
-
-                int clusterA = GetClusterId(kvpA.Key);
-                int clusterB = GetClusterId(kvpB.Key);
-                if (clusterA < 0 || clusterB < 0 || clusterA == clusterB) continue;
-
-                if (!AreAdjacent(kvpA.Key, kvpB.Key)) continue;
-
-                if (TrySnap(kvpA.Key, kvpB.Key)) return;
+                foreach (int lId in leftCluster)
+                {
+                    foreach (int rId in rightCluster)
+                    {
+                        if (TrySnap(lId, rId))
+                        {
+                            float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
+                            Debug.Log($"[Perf F:{Time.frameCount}] TrySnapAny (snap!): {ms:F2}ms");
+                            return;
+                        }
+                    }
+                }
             }
         }
+
+        float ms2 = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
+        if (ms2 > 2f) Debug.Log($"[Perf F:{Time.frameCount}] TrySnapAny: {ms2:F2}ms");
     }
 
     private void TrySnapHeld(PieceHolder holder)
@@ -287,6 +300,8 @@ public class SnapSystem : MonoBehaviour
     /// <summary>Applies the snap: moves the cluster, merges it, and triggers feedback.</summary>
     private void ResolveSnap(int pieceA, int pieceB, Vector3 correctionDelta)
     {
+        double t0 = Time.realtimeSinceStartupAsDouble;
+
         MoveCluster(pieceA, correctionDelta);
         AlignClusterRotation(pieceA, pieceB);
         MergeClusters(pieceA, pieceB);
@@ -311,13 +326,16 @@ public class SnapSystem : MonoBehaviour
         if (rightHolder != null) HapticPulse(rightHolder.controller, 0.1f, 0.5f);
 
         if (SaveManager.Instance != null)
-            SaveManager.Instance.Save();
+            SaveManager.Instance.SaveAsync();
 
         if (GetClusterCount() == 1)
         {
             if (CompletionFX.Instance != null)
                 CompletionFX.Instance.Trigger();
         }
+
+        float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
+        Debug.Log($"[Perf F:{Time.frameCount}] ResolveSnap: {ms:F2}ms");
     }
 
     /// <summary>Updates the parenting of all pieces in a cluster if the holder is holding one of them.</summary>

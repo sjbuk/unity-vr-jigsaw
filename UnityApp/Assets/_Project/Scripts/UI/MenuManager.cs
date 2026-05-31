@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.InputSystem;
@@ -113,10 +114,20 @@ public class MenuManager : MonoBehaviour
     [Tooltip("How fast the highlight color fades in (seconds).")]
     public float hoverFadeSpeed = 6f;
 
+    [Header("Network")]
+    [Tooltip("Base URL for the puzzle API server.")]
+    public string apiUrl = "http://10.111.1.20:8000";
+
     private string puzzlesPath;
     private List<PuzzleInfo> discoveredPuzzles;
     private Transform workingContainer;
     private TMP_Text titleText;
+    private TMP_InputField apiUrlInput;
+    private bool isLoadingRemote;
+
+    private Vector3 cachedCameraPos;
+    private Vector3 cachedCameraForward;
+    private Vector3 cachedCameraRight;
 
     private InputAction leftTriggerAction;
     private InputAction rightTriggerAction;
@@ -138,13 +149,34 @@ public class MenuManager : MonoBehaviour
 #endif
         Directory.CreateDirectory(puzzlesPath);
 
+        string persistedUrl = PlayerPrefs.GetString("PuzzleApiUrl", "");
+        if (!string.IsNullOrEmpty(persistedUrl))
+            apiUrl = persistedUrl;
+        PuzzleApiClient.BaseUrl = apiUrl;
+
         SetupContainer();
         SetupXRTrackingOrigin();
         SetupMenuUIControllers();
+
+        StartCoroutine(DeferredCameraSetup());
+    }
+
+    System.Collections.IEnumerator DeferredCameraSetup()
+    {
+        yield return new WaitForEndOfFrame();
+
+        var cam = Camera.main;
+        if (cam != null)
+        {
+            cachedCameraPos = cam.transform.position;
+            cachedCameraForward = cam.transform.forward;
+            cachedCameraRight = cam.transform.right;
+        }
+
         SetupCanvasWorldCamera();
         CreateTitle();
-        DiscoverPuzzles();
-        ArrangePanels();
+        CreateApiUrlPanel();
+        _ = DiscoverPuzzlesAsync();
     }
 
     void Update()
@@ -485,8 +517,12 @@ public class MenuManager : MonoBehaviour
     {
         if (workingContainer == null) return;
 
-        var cam = Camera.main;
-        if (cam == null) return;
+        var existing = workingContainer.Find("Title");
+        if (existing != null)
+        {
+            titleText = existing.GetComponent<TMP_Text>();
+            return;
+        }
 
         var titleGO = new GameObject("Title", typeof(RectTransform));
         titleGO.transform.SetParent(workingContainer, false);
@@ -494,9 +530,8 @@ public class MenuManager : MonoBehaviour
         var rt = titleGO.GetComponent<RectTransform>();
         rt.sizeDelta = new Vector2(2f, 0.15f);
 
-        Vector3 forward = cam.transform.forward;
-        titleGO.transform.position = cam.transform.position
-            + forward * menuForwardDistance
+        titleGO.transform.position = cachedCameraPos
+            + cachedCameraForward * menuForwardDistance
             + Vector3.up * (menuHeight + 0.45f);
 
         titleText = titleGO.AddComponent<TextMeshProUGUI>();
@@ -510,66 +545,283 @@ public class MenuManager : MonoBehaviour
             titleText.font = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
     }
 
-    void DiscoverPuzzles()
+    void CreateApiUrlPanel()
     {
-        discoveredPuzzles = new List<PuzzleInfo>();
+        if (workingContainer == null) return;
 
-        if (!Directory.Exists(puzzlesPath))
+        var existing = workingContainer.Find("ApiUrlPanel");
+        if (existing != null)
         {
-            Debug.LogWarning($"[MenuManager] Puzzle path does not exist: {puzzlesPath}");
+            apiUrlInput = existing.GetComponentInChildren<TMP_InputField>();
+            if (apiUrlInput != null)
+                apiUrlInput.text = apiUrl;
             return;
         }
 
-        var dirs = Directory.GetDirectories(puzzlesPath);
+        var panelGO = new GameObject("ApiUrlPanel", typeof(RectTransform));
+        panelGO.transform.SetParent(workingContainer, false);
 
-        foreach (var dir in dirs)
+        var rt = panelGO.GetComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(2.5f, 0.12f);
+
+        panelGO.transform.position = cachedCameraPos
+            + cachedCameraForward * menuForwardDistance
+            + Vector3.up * (menuHeight + 0.28f);
+
+        var inputGO = new GameObject("ApiUrlInput", typeof(RectTransform));
+        inputGO.transform.SetParent(panelGO.transform, false);
+        var inputRt = inputGO.GetComponent<RectTransform>();
+        inputRt.anchorMin = new Vector2(0, 0);
+        inputRt.anchorMax = new Vector2(0.7f, 1);
+        inputRt.sizeDelta = Vector2.zero;
+        inputRt.anchoredPosition = Vector2.zero;
+
+        var bg = inputGO.AddComponent<Image>();
+        bg.color = new Color(0.1f, 0.1f, 0.15f, 0.9f);
+
+        apiUrlInput = inputGO.AddComponent<TMP_InputField>();
+        apiUrlInput.text = apiUrl;
+        apiUrlInput.targetGraphic = bg;
+
+        var placeholder = new GameObject("Placeholder", typeof(RectTransform));
+        placeholder.transform.SetParent(inputGO.transform, false);
+        var phRt = placeholder.GetComponent<RectTransform>();
+        phRt.anchorMin = Vector2.zero;
+        phRt.anchorMax = Vector2.one;
+        phRt.sizeDelta = Vector2.zero;
+        var phText = placeholder.AddComponent<TextMeshProUGUI>();
+        phText.text = "API URL...";
+        phText.fontSize = 0.025f;
+        phText.color = new Color(0.5f, 0.5f, 0.6f, 1f);
+        phText.alignment = TextAlignmentOptions.Left;
+        phText.fontStyle = FontStyles.Italic;
+        if (phText.font == null)
+            phText.font = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
+        apiUrlInput.placeholder = phText;
+
+        var textArea = inputGO.transform.Find("Text Area");
+        if (textArea != null)
         {
-            string checkpoint = Path.Combine(dir, "checkpoint.json");
-            if (!File.Exists(checkpoint)) continue;
-
-            var json = File.ReadAllText(checkpoint);
-            var data = JsonUtility.FromJson<CheckpointData>(json);
-            if (data == null) continue;
-
-            string thumbnail = Path.Combine(dir, "preview.png");
-            string save = Path.Combine(dir, "save.json");
-            float progress = 0f;
-            bool hasSave = false;
-
-            if (File.Exists(save))
+            var textComp = textArea.GetComponentInChildren<TMP_Text>();
+            if (textComp != null)
             {
-                try
+                textComp.fontSize = 0.025f;
+                textComp.alignment = TextAlignmentOptions.Left;
+                textComp.color = Color.white;
+                if (textComp.font == null)
+                    textComp.font = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
+            }
+        }
+
+        var refreshGO = new GameObject("RefreshButton", typeof(RectTransform));
+        refreshGO.transform.SetParent(panelGO.transform, false);
+        var refreshRt = refreshGO.GetComponent<RectTransform>();
+        refreshRt.anchorMin = new Vector2(0.72f, 0.1f);
+        refreshRt.anchorMax = new Vector2(0.98f, 0.9f);
+        refreshRt.sizeDelta = Vector2.zero;
+
+        var refreshImg = refreshGO.AddComponent<Image>();
+        refreshImg.color = new Color(0.2f, 0.5f, 0.8f, 1f);
+
+        var refreshBtn = refreshGO.AddComponent<Button>();
+        refreshBtn.targetGraphic = refreshImg;
+
+        var refreshLabelGO = new GameObject("Text", typeof(RectTransform));
+        refreshLabelGO.transform.SetParent(refreshGO.transform, false);
+        var refreshLabelRt = refreshLabelGO.GetComponent<RectTransform>();
+        refreshLabelRt.anchorMin = Vector2.zero;
+        refreshLabelRt.anchorMax = Vector2.one;
+        refreshLabelRt.sizeDelta = Vector2.zero;
+        var refreshLabel = refreshLabelGO.AddComponent<TextMeshProUGUI>();
+        refreshLabel.text = "Refresh";
+        refreshLabel.fontSize = 0.025f;
+        refreshLabel.alignment = TextAlignmentOptions.Center;
+        refreshLabel.color = Color.white;
+        refreshLabel.fontStyle = FontStyles.Bold;
+        if (refreshLabel.font == null)
+            refreshLabel.font = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
+
+        refreshBtn.onClick.AddListener(() =>
+        {
+            apiUrl = apiUrlInput.text.Trim();
+            PuzzleApiClient.BaseUrl = apiUrl;
+            _ = RefreshPuzzleList();
+        });
+    }
+
+    async Task DiscoverPuzzlesAsync()
+    {
+        discoveredPuzzles = new List<PuzzleInfo>();
+
+        HashSet<string> localSourceModels = new HashSet<string>();
+        HashSet<string> localFolderNames = new HashSet<string>();
+
+        if (Directory.Exists(puzzlesPath))
+        {
+            var dirs = Directory.GetDirectories(puzzlesPath);
+
+            foreach (var dir in dirs)
+            {
+                string folderName = Path.GetFileName(dir);
+                localFolderNames.Add(folderName);
+
+                string checkpoint = Path.Combine(dir, "checkpoint.json");
+                if (!File.Exists(checkpoint)) continue;
+
+                var json = File.ReadAllText(checkpoint);
+                var data = JsonUtility.FromJson<CheckpointData>(json);
+                if (data == null) continue;
+
+                if (!string.IsNullOrEmpty(data.source))
+                    localSourceModels.Add(data.source);
+
+                string thumbnail = Path.Combine(dir, "preview.png");
+                string save = Path.Combine(dir, "save.json");
+                float progress = 0f;
+                bool hasSave = false;
+
+                if (File.Exists(save))
                 {
-                    var saveData = JsonUtility.FromJson<SaveManager.SaveData>(File.ReadAllText(save));
-                    if (saveData != null)
+                    try
                     {
-                        progress = saveData.completionPercent;
-                        hasSave = true;
+                        var saveData = JsonUtility.FromJson<SaveManager.SaveData>(File.ReadAllText(save));
+                        if (saveData != null)
+                        {
+                            progress = saveData.completionPercent;
+                            hasSave = true;
+                        }
+                    }
+                    catch { }
+                }
+
+                discoveredPuzzles.Add(new PuzzleInfo
+                {
+                    folderPath = dir,
+                    name = folderName,
+                    displayName = string.IsNullOrEmpty(data.name) ? folderName : data.name,
+                    pieceCount = data.piece_count,
+                    thumbnailPath = File.Exists(thumbnail) ? thumbnail : null,
+                    progress = progress,
+                    hasSave = hasSave,
+                    isRemote = false,
+                    isDownloaded = true,
+                    sourceModel = data.source
+                });
+            }
+        }
+
+        isLoadingRemote = true;
+        ArrangePanels();
+
+        var jobs = await PuzzleApiClient.ListJobs();
+        if (this == null) return;
+
+        foreach (var job in jobs)
+        {
+            if (string.IsNullOrEmpty(job.job_id)) continue;
+
+            bool alreadyLocal = localFolderNames.Contains(job.job_id)
+                || localSourceModels.Contains(job.source_model);
+
+            if (alreadyLocal)
+            {
+                foreach (var existing in discoveredPuzzles)
+                {
+                    if (existing.sourceModel == job.source_model
+                        || existing.name == job.job_id)
+                    {
+                        if (string.IsNullOrEmpty(existing.displayName)
+                            || existing.displayName == existing.name)
+                        {
+                            existing.displayName = job.name;
+                        }
+                        break;
                     }
                 }
-                catch { }
+                continue;
             }
 
             discoveredPuzzles.Add(new PuzzleInfo
             {
-                folderPath = dir,
-                name = Path.GetFileName(dir),
-                pieceCount = data.piece_count,
-                thumbnailPath = File.Exists(thumbnail) ? thumbnail : null,
-                progress = progress,
-                hasSave = hasSave
+                folderPath = Path.Combine(puzzlesPath, job.job_id),
+                name = job.job_id,
+                displayName = string.IsNullOrEmpty(job.name) ? job.job_id : job.name,
+                pieceCount = job.piece_count,
+                thumbnailPath = null,
+                progress = 0f,
+                hasSave = false,
+                isRemote = true,
+                isDownloaded = false,
+                remoteJobId = job.job_id,
+                sourceModel = job.source_model
             });
+        }
+
+        isLoadingRemote = false;
+        ArrangePanels();
+
+        await DownloadRemotePreviews();
+        if (this == null) return;
+    }
+
+    async Task DownloadRemotePreviews()
+    {
+        string cacheDir = Path.Combine(Application.persistentDataPath, "puzzle_previews");
+        Directory.CreateDirectory(cacheDir);
+
+        foreach (var info in discoveredPuzzles)
+        {
+            if (!info.isRemote || info.isDownloaded)
+                continue;
+
+            string cachedPath = Path.Combine(cacheDir, $"{info.remoteJobId}_preview.png");
+            if (File.Exists(cachedPath))
+            {
+                info.thumbnailPath = cachedPath;
+            }
+            else
+            {
+                byte[] data = await PuzzleApiClient.DownloadFile(info.remoteJobId, "preview.png");
+                if (this == null) return;
+
+                if (data != null && data.Length > 0)
+                {
+                    File.WriteAllBytes(cachedPath, data);
+                    info.thumbnailPath = cachedPath;
+                }
+            }
+
+            PuzzleCard card = null;
+            foreach (var c in workingContainer.GetComponentsInChildren<PuzzleCard>())
+            {
+                if (c.PuzzleInfo == info)
+                {
+                    card = c;
+                    break;
+                }
+            }
+
+            if (card != null && !string.IsNullOrEmpty(info.thumbnailPath))
+                card.UpdateThumbnail(info.thumbnailPath);
         }
     }
 
     void ArrangePanels()
     {
+        foreach (Transform child in workingContainer)
+        {
+            if (child.GetComponent<PuzzleCard>() != null)
+                Destroy(child.gameObject);
+        }
+
         int count = discoveredPuzzles.Count;
 
         if (count == 0)
         {
             if (titleText != null)
-                titleText.text = "No Puzzles Found";
+            {
+                titleText.text = isLoadingRemote ? "Loading puzzles..." : "No Puzzles Found";
+            }
             return;
         }
 
@@ -579,12 +831,6 @@ public class MenuManager : MonoBehaviour
             return;
         }
 
-        var cam = Camera.main;
-        if (cam == null) return;
-
-        Vector3 forward = cam.transform.forward;
-        Vector3 right = cam.transform.right;
-
         for (int i = 0; i < count; i++)
         {
             var card = Instantiate(puzzleCardPrefab, workingContainer);
@@ -592,14 +838,14 @@ public class MenuManager : MonoBehaviour
             float totalWidth = (count - 1) * cardSpacing;
             float offsetX = -totalWidth * 0.5f + i * cardSpacing;
 
-            Vector3 worldCenter = cam.transform.position
-                + forward * menuForwardDistance
+            Vector3 worldCenter = cachedCameraPos
+                + cachedCameraForward * menuForwardDistance
                 + Vector3.up * menuHeight
-                + right * offsetX;
+                + cachedCameraRight * offsetX;
 
             card.transform.position = worldCenter;
             card.transform.localScale = new Vector3(cardWorldScale, cardWorldScale, cardWorldScale);
-            card.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
+            card.transform.rotation = Quaternion.LookRotation(cachedCameraForward, Vector3.up);
 
             var puzzleCard = card.GetComponent<PuzzleCard>();
             if (puzzleCard != null)
@@ -609,20 +855,100 @@ public class MenuManager : MonoBehaviour
 
     public void OnStartPuzzle(PuzzleInfo puzzle, bool resume)
     {
+        if (puzzle.isRemote && !puzzle.isDownloaded)
+        {
+            _ = DownloadAndStartPuzzle(puzzle);
+            return;
+        }
+
         PuzzleManager.PuzzleFolderPath = puzzle.folderPath;
         PuzzleManager.LoadOnStart = resume ? PuzzleManager.LoadMode.Resume : PuzzleManager.LoadMode.NewGame;
         SceneManager.LoadScene("PuzzleScene");
     }
 
+    public async Task DownloadAndStartPuzzle(PuzzleInfo puzzle)
+    {
+        if (!puzzle.isRemote || puzzle.isDownloaded)
+        {
+            OnStartPuzzle(puzzle, false);
+            return;
+        }
+
+        puzzle.folderPath = Path.Combine(puzzlesPath, puzzle.remoteJobId);
+        Directory.CreateDirectory(puzzle.folderPath);
+
+        PuzzleCard targetCard = null;
+        foreach (var card in workingContainer.GetComponentsInChildren<PuzzleCard>())
+        {
+            if (card.PuzzleInfo == puzzle)
+            {
+                targetCard = card;
+                break;
+            }
+        }
+
+        if (targetCard != null)
+            targetCard.UpdateDownloadProgress(0.01f);
+
+        bool success = await PuzzleApiClient.DownloadPuzzle(
+            puzzle.remoteJobId, puzzle.folderPath,
+            progress =>
+            {
+                if (targetCard != null)
+                    targetCard.UpdateDownloadProgress(progress);
+            });
+
+        if (success)
+        {
+            puzzle.isDownloaded = true;
+            string checkpointPath = Path.Combine(puzzle.folderPath, "checkpoint.json");
+            if (File.Exists(checkpointPath))
+            {
+                var data = JsonUtility.FromJson<CheckpointData>(File.ReadAllText(checkpointPath));
+                if (data != null && !string.IsNullOrEmpty(data.name))
+                    puzzle.displayName = data.name;
+            }
+
+            string thumbnailPath = Path.Combine(puzzle.folderPath, "preview.png");
+            if (File.Exists(thumbnailPath))
+                puzzle.thumbnailPath = thumbnailPath;
+
+            if (targetCard != null)
+                targetCard.UpdateDownloadProgress(1f);
+
+            OnStartPuzzle(puzzle, false);
+        }
+        else
+        {
+            if (targetCard != null)
+                targetCard.UpdateDownloadProgress(-1f);
+
+            Debug.LogError($"[MenuManager] Failed to download puzzle: {puzzle.remoteJobId}");
+        }
+    }
+
     public void OnResetPuzzle(PuzzleInfo puzzle)
     {
         File.Delete(Path.Combine(puzzle.folderPath, "save.json"));
+
         foreach (Transform child in workingContainer)
-            Destroy(child.gameObject);
-        titleText = null;
-        CreateTitle();
-        DiscoverPuzzles();
-        ArrangePanels();
+        {
+            if (child.GetComponent<PuzzleCard>() != null)
+                Destroy(child.gameObject);
+        }
+
+        _ = DiscoverPuzzlesAsync();
+    }
+
+    async Task RefreshPuzzleList()
+    {
+        foreach (Transform child in workingContainer)
+        {
+            if (child.GetComponent<PuzzleCard>() != null)
+                Destroy(child.gameObject);
+        }
+
+        await DiscoverPuzzlesAsync();
     }
 }
 
@@ -635,4 +961,9 @@ public class PuzzleInfo
     public string thumbnailPath;
     public float progress;
     public bool hasSave;
+    public bool isRemote;
+    public bool isDownloaded;
+    public string remoteJobId;
+    public string displayName;
+    public string sourceModel;
 }

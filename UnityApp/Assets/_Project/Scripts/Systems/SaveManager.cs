@@ -1,6 +1,8 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using UnityEngine;
 
 /// <summary>
@@ -76,6 +78,38 @@ public class SaveManager : MonoBehaviour
     public void Save()
     {
         if (string.IsNullOrEmpty(puzzleFolderPath)) return;
+        var data = BuildSaveData();
+        if (data != null)
+            File.WriteAllText(saveFilePath, JsonUtility.ToJson(data, true));
+    }
+
+    /// <summary>Asynchronously saves the puzzle state. File I/O runs on a worker thread.</summary>
+    public void SaveAsync()
+    {
+        if (string.IsNullOrEmpty(puzzleFolderPath)) return;
+        StartCoroutine(SaveAsyncRoutine());
+    }
+
+    private IEnumerator SaveAsyncRoutine()
+    {
+        var data = BuildSaveData();
+        if (data == null) yield break;
+
+        string json = JsonUtility.ToJson(data, true);
+        string path = saveFilePath;
+
+        var task = Task.Run(() => File.WriteAllText(path, json));
+
+        while (!task.IsCompleted)
+            yield return null;
+
+        if (task.IsFaulted)
+            Debug.LogError($"[SaveManager] Async save failed: {task.Exception}");
+    }
+
+    private SaveData BuildSaveData()
+    {
+        if (string.IsNullOrEmpty(puzzleFolderPath)) return null;
 
         var pieces = FindObjectsByType<PieceState>();
 
@@ -111,7 +145,7 @@ public class SaveManager : MonoBehaviour
         int totalClusters = snapSystem != null ? snapSystem.GetClusterCount() : pieces.Length;
         float completionPercent = totalClusters > 0 ? 1f / totalClusters : 0f;
 
-        var data = new SaveData
+        return new SaveData
         {
             version = 1,
             timestamp = System.DateTime.Now.ToString("o"),
@@ -119,9 +153,6 @@ public class SaveManager : MonoBehaviour
             pieceStates = pieceEntries.ToArray(),
             clusters = clusterEntries.ToArray()
         };
-
-        string json = JsonUtility.ToJson(data, true);
-        File.WriteAllText(saveFilePath, json);
     }
 
     /// <summary>Loads and returns the saved puzzle state from save.json.</summary>

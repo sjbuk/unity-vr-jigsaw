@@ -17,7 +17,7 @@ from planar_phase_010 import load_model, normalize_mesh
 from planar_phase_021 import cut_pieces_planar
 from planar_phase_022 import reassign_orphans
 from planar_phase_030 import bake_backface_colours
-from planar_phase_040 import compute_adjacency, generate_preview
+from planar_phase_040 import compute_adjacency, generate_preview, generate_lowpoly_preview
 
 
 # ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ def run_ingest(config: Config) -> trimesh.Trimesh:
     mesh = load_model(config.input_path)
     print(f"           Vertices: {len(mesh.vertices):,}  Faces: {len(mesh.faces):,}")
 
-    print("[Phase 1] Normalizing to unit bounding box …")
+    print("[Phase 1] Normalizing to unit bounding box, ground at Y=0 …")
     mesh = normalize_mesh(mesh)
     bb = mesh.bounding_box
     print(
@@ -145,6 +145,12 @@ def export_results(
             flush=True,
         )
 
+    print("[Phase 4] Generating low-poly preview mesh …", file=sys.stderr, flush=True)
+    lowpoly_path = os.path.join(out, "lowpoly_preview.glb")
+    generate_lowpoly_preview(mesh, lowpoly_path, target_faces=2000)
+
+    piece_rotation_centers = [p.center_mass for p in final_pieces]
+
     checkpoint = {
         "source": os.path.basename(config.input_path),
         "piece_count": config.pieces,
@@ -155,6 +161,7 @@ def export_results(
             "extents": total_bounds.extents.tolist(),
         },
         "piece_centroids": [c.tolist() for c in piece_centroids],
+        "piece_rotation_centers": [c.tolist() for c in piece_rotation_centers],
         "piece_vertex_counts": piece_vertex_counts,
         "adjacency": adjacency,
     }

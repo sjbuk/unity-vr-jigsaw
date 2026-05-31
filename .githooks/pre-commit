@@ -1,0 +1,44 @@
+#!/bin/sh
+
+# Block oversized staged files before commit.
+MAX_BYTES=$((50 * 1024 * 1024))
+PUZZLE_SCENE_PATH="UnityApp/Assets/_Project/Scenes/PuzzleScene.unity"
+PUZZLE_SCENE_MAX_BYTES=$((5 * 1024 * 1024))
+
+failed=0
+
+tmp_file_list=$(mktemp 2>/dev/null || echo ".git/.pre-commit-staged-files.tmp")
+git diff --cached --name-only --diff-filter=AM > "$tmp_file_list"
+
+# Only check added/modified files currently staged.
+while IFS= read -r file; do
+  [ -z "$file" ] && continue
+
+  sha=$(git ls-files -s -- "$file" | awk '{print $2}' | head -n 1)
+  [ -z "$sha" ] && continue
+
+  size=$(git cat-file -s "$sha" 2>/dev/null)
+  [ -z "$size" ] && continue
+
+  if [ "$size" -gt "$MAX_BYTES" ]; then
+    echo "ERROR: '$file' is $size bytes (> $MAX_BYTES bytes)."
+    echo "Commit blocked. Use smaller assets, Git LFS, or add to .gitignore."
+    failed=1
+  fi
+
+  if [ "$file" = "$PUZZLE_SCENE_PATH" ] && [ "$size" -gt "$PUZZLE_SCENE_MAX_BYTES" ]; then
+    echo "ERROR: '$PUZZLE_SCENE_PATH' is $size bytes (> $PUZZLE_SCENE_MAX_BYTES bytes)."
+    echo "Commit blocked to prevent accidentally committing an oversized scene."
+    failed=1
+  fi
+done < "$tmp_file_list"
+
+rm -f "$tmp_file_list"
+
+if [ "$failed" -ne 0 ]; then
+  echo ""
+  echo "If intentional, reduce file size or switch to LFS for that file before committing."
+  exit 1
+fi
+
+exit 0

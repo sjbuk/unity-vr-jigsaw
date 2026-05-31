@@ -325,6 +325,9 @@ public class PiecePreview : MonoBehaviour
         }
 
         previewContainer.transform.rotation = controllerTransform.rotation * Quaternion.Euler(accumulatedPitch, accumulatedYaw, 0f);
+
+        if (previewedPiece != null && previewedPiece.IsInteractable())
+            previewedPiece.transform.rotation = previewContainer.transform.rotation;
     }
 
     void HidePreview()

@@ -10,6 +10,7 @@ import sys
 
 import numpy as np
 import trimesh
+from scipy.spatial import cKDTree
 
 
 def compute_adjacency(
@@ -299,16 +300,42 @@ def _get_uv_040(mesh: trimesh.Trimesh) -> np.ndarray | None:
     return None
 
 
+def _simplify_fast(mesh: trimesh.Trimesh, target_faces: int) -> "tuple[np.ndarray, np.ndarray, np.ndarray | None]":
+    """Simplify via quadric edge collapse (fast_simplification). UVs transferred via nearest-neighbour."""
+    from fast_simplification import simplify
+
+    verts_in = np.asarray(mesh.vertices, dtype=np.float64)
+    faces_in = np.asarray(mesh.faces, dtype=np.int32)
+    uvs = _get_uv_040(mesh)
+
+    verts_out, faces_out = simplify(
+        verts_in, faces_in,
+        target_count=target_faces,
+        agg=7.0,
+    )
+
+    if uvs is not None and len(verts_out) > 0 and len(verts_in) > 0:
+        tree = cKDTree(verts_in)
+        _, nn_idx = tree.query(verts_out)
+        uvs_out = uvs[nn_idx].copy()
+    else:
+        uvs_out = None
+
+    return verts_out, faces_out, uvs_out
+
+
 def generate_lowpoly_preview(
     mesh: trimesh.Trimesh,
     output_path: str,
     target_faces: int = 2000,
-) -> bool:
+) -> "tuple[int | None, int | None]":
     """
-    Generate a low-poly preview mesh via vertex clustering and export as GLB.
+    Generate a low-poly preview mesh via quadric edge collapse and export as GLB.
 
-    The simplified mesh is scaled to fit within a [2 wide, 1 high, 1 deep]
-    box preserving proportions, centred on X/Z, and grounded at Y=0.
+    Uses ``fast_simplification`` (quadric edge collapse) for high-quality
+    simplification that preserves UVs.  The simplified mesh is scaled to fit
+    within a [2 wide, 1 high, 1 deep] box preserving proportions, centred on
+    X/Z, and grounded at Y=0.
 
     Parameters
     ----------
@@ -317,61 +344,34 @@ def generate_lowpoly_preview(
     output_path : str
         Full path for the output GLB file.
     target_faces : int
-        Approximate number of faces in the simplified mesh.
+        Exact target face count for simplification.
 
     Returns
     -------
-    success : bool
+    (verts_out, faces_out) or (None, None) on failure.
     """
     try:
-        # ---- 1.  vertex clustering ----
         extents = mesh.bounding_box.extents
-        max_extent = float(extents.max())
-        if max_extent < 1e-10:
-            return False
+        if float(extents.max()) < 1e-10:
+            return None, None
 
-        cells_per_axis = max(4, int(round((target_faces / 3.0) ** (1.0 / 3.0))))
-        cell_size = max_extent / max(cells_per_axis, 1)
-        origin = mesh.bounding_box.bounds[0].copy()
+        # ---- 1.  quadric edge collapse simplification ----
+        try:
+            new_verts, new_faces, new_uvs = _simplify_fast(mesh, target_faces)
+        except ImportError:
+            print(
+                "[Phase 4] WARNING: fast_simplification not installed; "
+                "install with: pip install fast_simplification",
+                file=sys.stderr,
+            )
+            return None, None
 
-        verts = mesh.vertices.copy()
-        cell_indices = np.floor((verts - origin) / cell_size).astype(np.int32)
-
-        unique_cells, inverse, counts = np.unique(
-            cell_indices, axis=0, return_inverse=True, return_counts=True,
+        # ---- 2.  build preview mesh ----
+        preview = trimesh.Trimesh(
+            vertices=new_verts, faces=new_faces, process=False,
         )
-        n_cells = len(unique_cells)
-
-        new_verts = np.zeros((n_cells, 3), dtype=verts.dtype)
-        np.add.at(new_verts, inverse, verts)
-        new_verts /= counts[:, np.newaxis]
-
-        faces = mesh.faces
-        remapped = inverse[faces]
-
-        valid = (
-            (remapped[:, 0] != remapped[:, 1])
-            & (remapped[:, 1] != remapped[:, 2])
-            & (remapped[:, 0] != remapped[:, 2])
-        )
-        new_faces = remapped[valid].copy()
-
-        used_verts = np.unique(new_faces.ravel())
-        vert_remap = np.full(n_cells, -1, dtype=np.int64)
-        vert_remap[used_verts] = np.arange(len(used_verts))
-        new_verts = new_verts[used_verts].copy()
-        new_faces = vert_remap[new_faces]
-
-        preview = trimesh.Trimesh(vertices=new_verts, faces=new_faces, process=False)
-
-        # ---- 2.  preserve UVs and material ----
-        src_uv = _get_uv_040(mesh)
-        if src_uv is not None:
-            cell_uv = np.zeros((n_cells, 2), dtype=src_uv.dtype)
-            np.add.at(cell_uv, inverse, src_uv)
-            cell_uv /= counts[:, np.newaxis]
-            cell_uv = cell_uv[used_verts].copy()
-            preview.visual = trimesh.visual.TextureVisuals(uv=cell_uv)
+        if new_uvs is not None:
+            preview.visual = trimesh.visual.TextureVisuals(uv=new_uvs)
             if hasattr(mesh.visual, "material") and mesh.visual.material is not None:
                 preview.visual.material = mesh.visual.material
 
@@ -391,15 +391,16 @@ def generate_lowpoly_preview(
         preview.export(output_path)
         print(
             f"[Phase 4]   low-poly preview: {len(preview.vertices)} verts, "
-            f"{len(preview.faces)} faces ({cells_per_axis}^3 grid)",
+            f"{len(preview.faces)} faces (quadric edge collapse, "
+            f"target={target_faces})",
             file=sys.stderr,
             flush=True,
         )
-        return True
+        return len(preview.vertices), len(preview.faces)
 
     except Exception:
         print(
             f"[Phase 4] WARNING: Could not generate low-poly preview",
             file=sys.stderr,
         )
-        return False
+        return None, None

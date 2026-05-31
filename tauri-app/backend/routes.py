@@ -143,6 +143,7 @@ def _sync_orphans(job_id: str, loop: asyncio.AbstractEventLoop, lock: threading.
             gap=ck.get("gap", 0.001),
             seed=ck.get("seed", None),
             adjacency_threshold=ck.get("adjacency_threshold", 0.01),
+            preview_faces=ck.get("preview_faces", 2000),
         )
 
         _emit(loop, job_id, "[Phase 1] Loading normalized mesh...")
@@ -215,7 +216,7 @@ def _save_upload(config_data: dict, file: UploadFile) -> tuple[str, Config, str]
         output_path="",
         **{k: v for k, v in config_data.items() if k in (
             "pieces", "gap", "seed", "reassign_orphans", "adjacency_threshold",
-            "preview_resolution", "preview_height",
+            "preview_resolution", "preview_height", "preview_faces",
         )},
     )
 
@@ -360,6 +361,7 @@ async def slice_job(job_id: str, payload: dict = {}):
             gap=payload.get("gap", 0.001),
             seed=payload.get("seed", None),
             reassign_orphans=payload.get("reassign_orphans", False),
+            preview_faces=payload.get("preview_faces", 2000),
         )
         try:
             cfg.validate()

@@ -18,6 +18,19 @@
   </div>
 
   <div class="field">
+    <label for="previewFaces">Preview Faces</label>
+    <input
+      id="previewFaces"
+      type="range"
+      min="4"
+      max="10000"
+      step="100"
+      bind:value={params.preview_faces}
+    />
+    <span class="value">{params.preview_faces}</span>
+  </div>
+
+  <div class="field">
     <label for="seed">Seed (optional)</label>
     <input
       id="seed"

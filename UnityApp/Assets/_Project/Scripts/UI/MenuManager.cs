@@ -759,6 +759,7 @@ public class MenuManager : MonoBehaviour
 
         isLoadingRemote = false;
         ArrangePanels();
+        StartCoroutine(LazyLoadCardModels());
 
         await DownloadRemotePreviews();
         if (this == null) return;
@@ -850,6 +851,35 @@ public class MenuManager : MonoBehaviour
             var puzzleCard = card.GetComponent<PuzzleCard>();
             if (puzzleCard != null)
                 puzzleCard.Initialize(discoveredPuzzles[i], this);
+        }
+    }
+
+    System.Collections.IEnumerator LazyLoadCardModels()
+    {
+        yield return null;
+
+        while (true)
+        {
+            var cards = workingContainer != null
+                ? workingContainer.GetComponentsInChildren<PuzzleCard>()
+                : null;
+
+            if (cards == null || cards.Length == 0)
+                yield break;
+
+            bool anyRequested = false;
+            foreach (var card in cards)
+            {
+                if (card.CanLoadModel)
+                {
+                    card.RequestModelLoad();
+                    anyRequested = true;
+                    yield return new WaitForSeconds(1.0f);
+                }
+            }
+
+            if (!anyRequested)
+                yield break;
         }
     }
 

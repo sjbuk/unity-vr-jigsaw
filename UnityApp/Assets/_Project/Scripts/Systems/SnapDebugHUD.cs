@@ -15,7 +15,7 @@ public class SnapDebugHUD : MonoBehaviour
     private TMP_Text labelText;
     private TMP_Text listText;
     private Image panelBg;
-    private bool visible = true;
+    private bool visible = false;
     private bool hudReady;
 
     private readonly System.Text.StringBuilder sb = new System.Text.StringBuilder();

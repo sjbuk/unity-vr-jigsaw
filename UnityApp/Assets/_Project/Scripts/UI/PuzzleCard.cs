@@ -22,6 +22,9 @@ public class PuzzleCard : MonoBehaviour
     public PuzzleInfo PuzzleInfo => puzzleInfo;
     private MenuManager menuManager;
 
+    private string glbPath;
+    private bool modelLoadStarted;
+
     private static readonly ColorBlock ResumeColors = new ColorBlock
     {
         normalColor = new Color(0.157f, 0.569f, 0.275f),
@@ -87,13 +90,10 @@ public class PuzzleCard : MonoBehaviour
         if (progressText != null)
             progressText.gameObject.SetActive(!isRemoteUndownloaded);
 
-        string glbPath = Path.Combine(info.folderPath, "pieces.glb");
-        if (!isRemoteUndownloaded && modelPreview != null && File.Exists(glbPath))
-        {
-            modelPreview.OnModelLoaded += OnModelPreviewLoaded;
-            _ = modelPreview.LoadModel(glbPath);
-        }
-        else if (!isRemoteUndownloaded)
+        glbPath = Path.Combine(info.folderPath, "pieces.glb");
+        modelLoadStarted = false;
+
+        if (!isRemoteUndownloaded)
         {
             LoadThumbnail(info.thumbnailPath);
         }
@@ -187,11 +187,32 @@ public class PuzzleCard : MonoBehaviour
         }
     }
 
+    public bool CanLoadModel => !modelLoadStarted
+        && !string.IsNullOrEmpty(glbPath)
+        && File.Exists(glbPath);
+
+    public void RequestModelLoad()
+    {
+        if (modelLoadStarted) return;
+        if (modelPreview == null) return;
+        if (string.IsNullOrEmpty(glbPath) || !File.Exists(glbPath)) return;
+
+        modelLoadStarted = true;
+        modelPreview.OnModelLoaded += OnModelPreviewLoaded;
+        _ = modelPreview.LoadModel(glbPath);
+    }
+
     private void OnModelPreviewLoaded()
     {
         if (thumbnailImage != null)
             thumbnailImage.gameObject.SetActive(false);
 
+        if (modelPreview != null)
+            modelPreview.OnModelLoaded -= OnModelPreviewLoaded;
+    }
+
+    void OnDestroy()
+    {
         if (modelPreview != null)
             modelPreview.OnModelLoaded -= OnModelPreviewLoaded;
     }

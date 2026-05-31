@@ -4,7 +4,7 @@
   import ParamForm from './lib/ParamForm.svelte';
   import PieceViewer from './lib/PieceViewer.svelte';
   import PieceList from './lib/PieceList.svelte';
-  import { uploadModel, sliceJob, reassignOrphans, progressStream, listJobs, getJob, updateJobMeta } from './lib/api';
+  import { uploadModel, sliceJob, reassignOrphans, progressStream, listJobs, getJob, updateJobMeta, regeneratePreview } from './lib/api';
   import type { SliceParams, SliceResult, ViewMode, JobSummary, CameraOrientation } from './types';
   import { DEFAULT_PARAMS } from './types';
 
@@ -22,6 +22,10 @@
   let pieceVisibility = $state<boolean[]>([]);
   let jobs: JobSummary[] = $state([]);
   let loadingJobs = $state(false);
+  let totalFaces = $state(0);
+  let showPreview = $state(false);
+  let previewPath = $state('');
+  let previewInProgress = $state(false);
 
   let prevFile: File | null = $state(null);
   $effect(() => {
@@ -31,7 +35,18 @@
       processed = false;
       jobId = '';
       pieceVisibility = [];
+      totalFaces = 0;
+      showPreview = false;
+      previewPath = '';
     }
+  });
+
+  $effect(() => {
+    previewPath = result?.preview_glb ?? '';
+  });
+
+  $effect(() => {
+    if (!previewPath && showPreview) showPreview = false;
   });
 
   let piecePaths: string[] = $state([]);
@@ -154,6 +169,24 @@
     }
   }
 
+  async function handleRegeneratePreview() {
+    if (!jobId) return;
+    previewInProgress = true;
+    error = '';
+    try {
+      await regeneratePreview(jobId, params.preview_faces);
+      if (showPreview) {
+        showPreview = false;
+        await new Promise(r => setTimeout(r, 50));
+        showPreview = true;
+      }
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      previewInProgress = false;
+    }
+  }
+
   async function handleLoadPrevious() {
     activeTab = 'previous';
     loadingJobs = true;
@@ -236,7 +269,7 @@
       {#if result}
         <section class="section">
           <h2>Parameters</h2>
-          <ParamForm bind:params />
+          <ParamForm bind:params totalFaces={totalFaces} />
         </section>
 
         <button class="btn btn-slice" onclick={handleSlice} disabled={processing}>
@@ -246,6 +279,12 @@
         {#if processed}
           <button class="btn btn-orphans" onclick={handleOrphans} disabled={processing}>
             Reassign Orphans
+          </button>
+        {/if}
+
+        {#if processed && previewPath}
+          <button class="btn btn-preview" onclick={handleRegeneratePreview} disabled={processing || previewInProgress}>
+            {previewInProgress ? 'Generating...' : 'Regenerate Preview'}
           </button>
         {/if}
       {/if}
@@ -296,6 +335,9 @@
       bind:showTexture
       bind:cameraCaptureRef={captureCamera}
       bind:initialOrientation={orientation}
+      bind:totalFaces
+      bind:previewPath
+      bind:showPreview
     />
   </main>
 
@@ -303,13 +345,16 @@
     <aside class="results-panel">
       <div class="view-toggle">
         <button
-          class="toggle-btn" class:active={viewMode === 'split'}
+          class="toggle-btn" class:active={viewMode === 'split' && !showPreview}
+          class:dimmed={showPreview}
           onclick={() => (viewMode = 'split')}>Split</button>
         <button
-          class="toggle-btn" class:active={viewMode === 'assembled'}
+          class="toggle-btn" class:active={viewMode === 'assembled' || showPreview}
+          class:dimmed={showPreview}
           onclick={() => (viewMode = 'assembled')}>Assembled</button>
         <button
-          class="toggle-btn" class:active={viewMode === 'simulate'}
+          class="toggle-btn" class:active={viewMode === 'simulate' && !showPreview}
+          class:dimmed={showPreview}
           onclick={() => (viewMode = 'simulate')}>Simulate</button>
       </div>
       <div class="texture-toggle">
@@ -317,6 +362,17 @@
           class="toggle-btn" class:active={showTexture}
           onclick={() => (showTexture = !showTexture)}>Textures</button>
       </div>
+
+      {#if previewPath}
+        <div class="preview-toggle">
+          <button
+            class="toggle-btn" class:active={!showPreview}
+            onclick={() => (showPreview = false)}>Full</button>
+          <button
+            class="toggle-btn" class:active={showPreview}
+            onclick={() => (showPreview = true)}>Preview</button>
+        </div>
+      {/if}
 
       <section class="meta-section">
         <div class="meta-field">
@@ -437,6 +493,19 @@
   }
   .btn-orphans:hover:not(:disabled) { background: #6e502e; }
   .btn-orphans:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-preview {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    background: #5a4a8a;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-preview:hover:not(:disabled) { background: #4a3a70; }
+  .btn-preview:disabled { opacity: 0.4; cursor: not-allowed; }
   .model-loaded {
     font-size: 0.75rem;
     color: #4f8cff;
@@ -481,7 +550,16 @@
   }
   .toggle-btn.active { background: #4f8cff; color: #fff; }
   .toggle-btn:hover:not(.active) { color: #ccc; }
+  .toggle-btn.dimmed { opacity: 0.3; pointer-events: none; }
   .texture-toggle {
+    flex-shrink: 0;
+  }
+  .preview-toggle {
+    display: flex;
+    gap: 0.25rem;
+    background: #2a2a3e;
+    border-radius: 6px;
+    padding: 2px;
     flex-shrink: 0;
   }
   .meta-section {

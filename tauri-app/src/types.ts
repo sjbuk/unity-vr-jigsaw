@@ -32,6 +32,7 @@ export interface SliceResult {
   name?: string;
   orientation?: CameraOrientation | null;
   normalized_glb?: string;
+  preview_glb?: string;
 }
 
 export interface JobSummary {

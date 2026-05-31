@@ -13,6 +13,7 @@ from starlette.background import BackgroundTask
 
 from planar_lib import Config
 from planar_phase_010 import load_model, normalize_mesh
+from planar_phase_040 import generate_lowpoly_preview
 
 router = APIRouter(prefix="/api")
 
@@ -50,7 +51,7 @@ def _clean_outputs(job_dir: Path):
     pieces_dir = job_dir / "pieces"
     if pieces_dir.exists():
         shutil.rmtree(str(pieces_dir))
-    for name in ("pieces.glb", "preview.png", "colour_atlas.png"):
+    for name in ("pieces.glb", "preview.png", "colour_atlas.png", "lowpoly_preview.glb"):
         p = job_dir / name
         if p.exists():
             p.unlink()
@@ -400,6 +401,54 @@ async def reassign_orphans_endpoint(job_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/preview/{job_id}")
+async def regenerate_preview(job_id: str, payload: dict = {}):
+    job_dir = OUTPUTS_DIR / job_id
+    norm_glb = job_dir / "normalized.glb"
+    if not norm_glb.exists():
+        raise HTTPException(status_code=400, detail="No normalized model found — upload first")
+
+    if not _slice_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Another job is already running")
+
+    preview_faces = payload.get("preview_faces", 2000)
+
+    try:
+        from planar_phase_010 import load_model
+
+        mesh = load_model(str(norm_glb))
+        lowpoly_path = job_dir / "lowpoly_preview.glb"
+
+        lowpoly_verts, lowpoly_faces = generate_lowpoly_preview(
+            mesh, str(lowpoly_path), target_faces=preview_faces,
+        )
+
+        if lowpoly_verts is None or lowpoly_faces is None:
+            raise RuntimeError("Preview generation failed — ensure fast_simplification is installed")
+
+        ck_path = job_dir / "checkpoint.json"
+        if ck_path.exists():
+            with open(ck_path) as f:
+                ck = json.load(f)
+            ck["lowpoly_vertices"] = lowpoly_verts
+            ck["lowpoly_faces"] = lowpoly_faces
+            ck["preview_faces"] = preview_faces
+            with open(ck_path, "w") as f:
+                json.dump(ck, f, indent=2)
+
+        return {
+            "status": "ok",
+            "preview_glb": "lowpoly_preview.glb",
+            "lowpoly_vertices": lowpoly_verts,
+            "lowpoly_faces": lowpoly_faces,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _slice_lock.release()
+
+
 @router.get("/progress/{job_id}")
 async def progress_stream(job_id: str):
     queue = _progress_queues.get(job_id)
@@ -446,6 +495,8 @@ async def progress_stream(job_id: str):
                         }
                         if norm_path.exists():
                             result["normalized_glb"] = "normalized.glb"
+                        if (job_dir / "lowpoly_preview.glb").exists():
+                            result["preview_glb"] = "lowpoly_preview.glb"
                     yield f"data: [DONE]\ndata: {json.dumps(result)}\n\n"
                     return
                 elif msg.startswith("[ERROR]"):
@@ -490,7 +541,10 @@ async def serve_output(job_id: str, file_path: str):
     return FileResponse(
         resolved,
         media_type=media_type,
-        headers={"Access-Control-Allow-Origin": "*"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
     )
 
 
@@ -563,6 +617,8 @@ async def get_job(job_id: str):
     }
     if (job_dir / "normalized.glb").exists():
         result["normalized_glb"] = "normalized.glb"
+    if (job_dir / "lowpoly_preview.glb").exists():
+        result["preview_glb"] = "lowpoly_preview.glb"
     return result
 
 

@@ -147,7 +147,9 @@ def export_results(
 
     print("[Phase 4] Generating low-poly preview mesh …", file=sys.stderr, flush=True)
     lowpoly_path = os.path.join(out, "lowpoly_preview.glb")
-    generate_lowpoly_preview(mesh, lowpoly_path, target_faces=2000)
+    lowpoly_verts, lowpoly_faces = generate_lowpoly_preview(
+        mesh, lowpoly_path, target_faces=config.preview_faces,
+    )
 
     piece_rotation_centers = [p.center_mass for p in final_pieces]
 
@@ -163,6 +165,8 @@ def export_results(
         "piece_centroids": [c.tolist() for c in piece_centroids],
         "piece_rotation_centers": [c.tolist() for c in piece_rotation_centers],
         "piece_vertex_counts": piece_vertex_counts,
+        "lowpoly_vertices": lowpoly_verts,
+        "lowpoly_faces": lowpoly_faces,
         "adjacency": adjacency,
     }
     checkpoint_path = os.path.join(out, "checkpoint.json")

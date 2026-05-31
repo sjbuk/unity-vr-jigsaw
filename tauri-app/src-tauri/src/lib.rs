@@ -19,10 +19,16 @@ pub struct SliceParams {
     pub seed: Option<u32>,
     #[serde(default = "default_true")]
     pub reassign_orphans: bool,
+    #[serde(default = "default_preview_faces")]
+    pub preview_faces: u32,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_preview_faces() -> u32 {
+    2000
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -1,7 +1,18 @@
 <script lang="ts">
   import type { SliceParams } from '../types';
 
-  let { params = $bindable() }: { params: SliceParams } = $props();
+  let { params = $bindable(), totalFaces = 0 }:
+    { params: SliceParams; totalFaces?: number } = $props();
+
+  const percents = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+
+  let previewPercent = $state(50);
+
+  $effect(() => {
+    if (totalFaces > 0) {
+      params.preview_faces = Math.max(4, Math.floor(totalFaces * previewPercent / 100));
+    }
+  });
 </script>
 
 <div class="param-form">
@@ -17,17 +28,22 @@
     <span class="value">{params.gap.toFixed(4)}</span>
   </div>
 
-  <div class="field">
-    <label for="previewFaces">Preview Faces</label>
-    <input
-      id="previewFaces"
-      type="range"
-      min="4"
-      max="10000"
-      step="100"
-      bind:value={params.preview_faces}
-    />
-    <span class="value">{params.preview_faces}</span>
+  <div class="field field-block">
+    <span class="field-label">Preview Faces</span>
+    {#if totalFaces > 0}
+      <div class="pct-bar">
+        {#each percents as pct}
+          <button
+            class="pct-btn"
+            class:active={previewPercent === pct}
+            onclick={() => (previewPercent = pct)}
+          >{pct}%</button>
+        {/each}
+      </div>
+      <span class="pct-result">{params.preview_faces.toLocaleString()} faces at {previewPercent}%</span>
+    {:else}
+      <span class="na">Upload a model to configure</span>
+    {/if}
   </div>
 
   <div class="field">
@@ -60,6 +76,11 @@
     font-weight: 500;
     color: #ccc;
   }
+  .field-label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #ccc;
+  }
   .field input[type='range'] {
     width: 100%;
     accent-color: #4f8cff;
@@ -71,7 +92,11 @@
     min-width: 3.5rem;
     text-align: right;
   }
-  .field select,
+  .field .na {
+    font-size: 0.8rem;
+    color: #666;
+    font-family: monospace;
+  }
   .field input[type='number'] {
     padding: 0.3rem 0.5rem;
     background: #2a2a2a;
@@ -79,8 +104,41 @@
     border-radius: 4px;
     color: #eee;
     font-size: 0.85rem;
-  }
-  .field input[type='number'] {
     width: 100%;
+  }
+  .field-block {
+    grid-template-columns: 1fr;
+    gap: 0.3rem;
+  }
+  .pct-bar {
+    display: flex;
+    gap: 2px;
+    flex-wrap: wrap;
+  }
+  .pct-btn {
+    flex: 1;
+    min-width: 2rem;
+    padding: 0.2rem 0.15rem;
+    border: 1px solid #444;
+    border-radius: 3px;
+    background: #2a2a2a;
+    color: #888;
+    font-size: 0.65rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .pct-btn.active {
+    background: #4f8cff;
+    color: #fff;
+    border-color: #4f8cff;
+  }
+  .pct-btn:hover:not(.active) {
+    background: #333;
+    color: #ccc;
+  }
+  .pct-result {
+    font-size: 0.7rem;
+    color: #4f8cff;
+    font-family: monospace;
   }
 </style>

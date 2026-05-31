@@ -398,9 +398,9 @@ def generate_lowpoly_preview(
         )
         return len(preview.vertices), len(preview.faces)
 
-    except Exception:
+    except Exception as exc:
         print(
-            f"[Phase 4] WARNING: Could not generate low-poly preview",
+            f"[Phase 4] WARNING: Could not generate low-poly preview: {exc}",
             file=sys.stderr,
         )
         return None, None

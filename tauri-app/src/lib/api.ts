@@ -111,6 +111,21 @@ export async function updateJobMeta(
   if (!r.ok) throw new Error('Failed to update job metadata');
 }
 
+export async function regeneratePreview(
+  jobId: string,
+  previewFaces: number,
+): Promise<void> {
+  const r = await fetch(`${API}/preview/${jobId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ preview_faces: previewFaces }),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(text || 'Preview regeneration failed');
+  }
+}
+
 export function outputUrl(jobId: string, relPath: string): string {
   return `${API}/outputs/${jobId}/${relPath}`;
 }

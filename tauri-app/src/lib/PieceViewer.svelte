@@ -15,6 +15,9 @@
     showTexture = $bindable(false),
     cameraCaptureRef = $bindable(null as (() => CameraOrientation) | null),
     initialOrientation = $bindable(null as CameraOrientation | null),
+    totalFaces = $bindable(0),
+    previewPath = $bindable(''),
+    showPreview = $bindable(false),
   }: {
     piecePaths?: string[];
     backPiecePaths?: string[];
@@ -25,6 +28,9 @@
     showTexture?: boolean;
     cameraCaptureRef?: (() => CameraOrientation) | null;
     initialOrientation?: CameraOrientation | null;
+    totalFaces?: number;
+    previewPath?: string;
+    showPreview?: boolean;
   } = $props();
 
   let container: HTMLDivElement;
@@ -324,6 +330,20 @@
     controls.update();
   }
 
+  function countTotalFaces(meshes: THREE.Mesh[]): number {
+    let count = 0;
+    for (const m of meshes) {
+      if (!m.geometry) continue;
+      const idx = m.geometry.index;
+      if (idx) {
+        count += idx.count / 3;
+      } else if (m.geometry.attributes.position) {
+        count += m.geometry.attributes.position.count / 3;
+      }
+    }
+    return Math.floor(count);
+  }
+
   function clearScene() {
     if (!scene) return;
     for (const m of meshes) {
@@ -356,9 +376,9 @@
 
     const results = await Promise.all(
       allPaths.map(async ({ path, index }) => {
-        try {
-          const url = srcUrl(path);
-          const gltf = await loader.loadAsync(url);
+    try {
+      const url = `${srcUrl(path)}?ts=${Date.now()}`;
+      const gltf = await loader.loadAsync(url);
           if (gen !== loadingGen) return null;
           let box = new THREE.Box3();
           const found: THREE.Mesh[] = [];
@@ -426,6 +446,7 @@
         const pieceIdx = nameMatch ? parseInt(nameMatch[1], 10) : fallbackIdx++;
         addMesh(child, pieceIdx);
       }
+      if (found.length > 0 && totalFaces === 0) totalFaces = countTotalFaces(found);
       applyVisibility();
       fitCamera();
       applyOrientation(initialOrientation);
@@ -505,10 +526,37 @@
     }
   }
 
+  async function loadPreview(path: string) {
+    const gen = ++loadingGen;
+    if (!scene) return;
+    clearScene();
+
+    try {
+      const url = srcUrl(path);
+      const gltf = await loader.loadAsync(url);
+      if (gen !== loadingGen) return;
+      if (!gltf || !gltf.scene) throw new Error('Failed to parse preview GLB: scene missing');
+
+      const found: THREE.Mesh[] = [];
+      gltf.scene.traverse((child) => {
+        if (child instanceof THREE.Mesh) found.push(child);
+      });
+      for (let i = 0; i < found.length; i++) {
+        addMesh(found[i], i);
+      }
+      fitCamera();
+      applyOrientation(initialOrientation);
+    } catch (err) {
+      loadError = `Preview: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
   $effect(() => {
     const paths = piecePaths;
     const bpaths = backPiecePaths;
     const cpath = consolidatedPath;
+    const ppath = previewPath;
+    const preview = showPreview;
     const mode = viewMode;
     const jid = jobId;
 
@@ -516,7 +564,9 @@
     if (!renderer) init();
     if (!scene) return;
 
-    if (mode === 'split' && paths.length > 0) {
+    if (preview && ppath) {
+      loadPreview(ppath);
+    } else if (mode === 'split' && paths.length > 0) {
       loadSplitPieces(paths, bpaths);
     } else if (mode === 'assembled' && cpath) {
       loadAssembled(cpath);

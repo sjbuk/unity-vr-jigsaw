@@ -29,6 +29,12 @@ public class PuzzleManager : MonoBehaviour
     {
         try
         {
+            var mainCam = Camera.main;
+            if (mainCam != null && mainCam.GetComponent<FrameProfiler>() == null)
+                mainCam.gameObject.AddComponent<FrameProfiler>();
+
+            DisableTeleport();
+
             if (string.IsNullOrEmpty(PuzzleFolderPath))
             {
                 string puzzlesPath;
@@ -135,6 +141,8 @@ public class PuzzleManager : MonoBehaviour
         catch (System.Exception) { if (this == null) return; }
         if (this == null) return;
 
+        EnableGPUInstancingOnAllMaterials(root.transform);
+
         var pieceNodes = new Dictionary<int, List<Transform>>();
         CollectPieceNodes(root.transform, pieceNodes);
 
@@ -231,6 +239,20 @@ public class PuzzleManager : MonoBehaviour
             if (pieceSize > maxSize) maxSize = pieceSize;
         }
         return maxSize * 1.2f;
+    }
+
+    void EnableGPUInstancingOnAllMaterials(Transform root)
+    {
+        var uniqueMaterials = new System.Collections.Generic.HashSet<Material>();
+        foreach (var renderer in root.GetComponentsInChildren<Renderer>())
+        {
+            if (renderer.sharedMaterial != null)
+            {
+                renderer.sharedMaterial.enableInstancing = true;
+                uniqueMaterials.Add(renderer.sharedMaterial);
+            }
+        }
+        Debug.Log($"[PuzzleManager] Enabled GPU instancing on {uniqueMaterials.Count} unique materials");
     }
 
     private int ParsePieceId(string name)
@@ -352,4 +374,30 @@ public class PuzzleManager : MonoBehaviour
 
     void OnApplicationQuit() { saveManager?.Save(); }
     void OnApplicationPause(bool pauseStatus) { if (pauseStatus) saveManager?.Save(); }
+
+    void DisableTeleport()
+    {
+        foreach (var t in FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        {
+            if (t.name != "Left Controller" && t.name != "Right Controller")
+                continue;
+
+            var teleportChild = t.Find("Teleport Interactor");
+            if (teleportChild != null)
+                teleportChild.gameObject.SetActive(false);
+
+            foreach (var nf in t.GetComponents<UnityEngine.XR.Interaction.Toolkit.Interactors.NearFarInteractor>())
+            {
+                nf.enableNearCasting = false;
+                nf.enableFarCasting = false;
+            }
+        }
+
+        var inputAssets = Resources.FindObjectsOfTypeAll<UnityEngine.InputSystem.InputActionAsset>();
+        foreach (var asset in inputAssets)
+        {
+            asset.FindActionMap("XRI LeftHand Locomotion")?.Disable();
+            asset.FindActionMap("XRI RightHand Locomotion")?.Disable();
+        }
+    }
 }

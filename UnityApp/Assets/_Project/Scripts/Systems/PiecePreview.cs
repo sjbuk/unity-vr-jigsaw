@@ -2,11 +2,11 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.XR.Interaction.Toolkit.Locomotion.Movement;
 using UnityEngine.XR.Interaction.Toolkit.Locomotion.Turning;
+using System.Collections.Generic;
 
 /// <summary>
 /// Per-controller component that shows a scaled-down preview of the laser-targeted piece
 /// above the controller when the piece is on the wall or beyond a configurable distance.
-/// The preview can be rotated using the controller's thumbstick.
 /// </summary>
 public class PiecePreview : MonoBehaviour
 {
@@ -39,8 +39,11 @@ public class PiecePreview : MonoBehaviour
     private InputActionMap jigsawMap;
     private InputAction thumbstickAction;
 
-    private float _debugLogTimer;
-    private static readonly float _debugLogInterval = 1f;
+    // --- OPTIMIZATION POOLS ---
+    private List<MeshFilter> pooledFilters = new List<MeshFilter>();
+    private List<MeshRenderer> pooledRenderers = new List<MeshRenderer>();
+    private List<MeshRenderer> targetPieceRenderers = new List<MeshRenderer>(); // Reusable list to avoid GC allocations
+    private const int INITIAL_POOL_SIZE = 8;
 
     void Awake()
     {
@@ -55,9 +58,43 @@ public class PiecePreview : MonoBehaviour
         Debug.Log($"[PiecePreview] Awake {gameObject.name} Hand={Hand} laserPtr={laserPointer != null} ctrlXform={controllerTransform != null}");
 
         CacheTurnProviders();
-
+        CreatePreviewContainer();
+        InitializeObjectPool();
         TryLoadInputActions();
         BindInput();
+    }
+
+    void CreatePreviewContainer()
+    {
+        previewContainer = new GameObject($"PiecePreviewContainer_{Hand}");
+        previewContainer.transform.SetParent(null); // Keep decoupled from controller to prevent tracking stalls
+        previewContainer.SetActive(false);
+    }
+
+    void InitializeObjectPool()
+    {
+        // Pre-warm a pool of GameObjects with components already attached
+        for (int i = 0; i < INITIAL_POOL_SIZE; i++)
+        {
+            CreatePoolElement();
+        }
+    }
+
+    void CreatePoolElement()
+    {
+        GameObject child = new GameObject($"PooledMesh_{pooledFilters.Count}");
+        child.transform.SetParent(previewContainer.transform, false);
+
+        MeshFilter mf = child.AddComponent<MeshFilter>();
+        MeshRenderer mr = child.AddComponent<MeshRenderer>();
+
+        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        mr.receiveShadows = false;
+
+        child.SetActive(false);
+
+        pooledFilters.Add(mf);
+    box_Renderer_Cache: pooledRenderers.Add(mr);
     }
 
     static void CacheTurnProviders()
@@ -76,20 +113,14 @@ public class PiecePreview : MonoBehaviour
         {
             var moveGo = GameObject.Find("Move");
             if (moveGo != null)
-            {
                 s_continuousMove = moveGo.GetComponent<ContinuousMoveProvider>();
-            }
         }
     }
 
     bool TryLoadInputActions()
     {
         var jsonAsset = Resources.Load<TextAsset>("XRI_Jigsaw");
-        if (jsonAsset == null)
-        {
-            Debug.LogWarning("[PiecePreview] XRI_Jigsaw.json not found in Resources.");
-            return false;
-        }
+        if (jsonAsset == null) return false;
 
         try { inputActions = InputActionAsset.FromJson(jsonAsset.text); }
         catch (System.Exception e)
@@ -99,13 +130,7 @@ public class PiecePreview : MonoBehaviour
         }
 
         jigsawMap = inputActions.FindActionMap("Jigsaw");
-        if (jigsawMap == null)
-        {
-            Debug.LogError("[PiecePreview] Jigsaw action map not found.");
-            return false;
-        }
-
-        return true;
+        return jigsawMap != null;
     }
 
     void BindInput()
@@ -140,6 +165,9 @@ public class PiecePreview : MonoBehaviour
             thumbstickAction.performed -= OnThumbstick;
             thumbstickAction.canceled -= OnThumbstickCanceled;
         }
+
+        if (previewContainer != null)
+            Destroy(previewContainer);
     }
 
     void OnThumbstick(InputAction.CallbackContext ctx) => thumbstickValue = ctx.ReadValue<Vector2>();
@@ -147,17 +175,11 @@ public class PiecePreview : MonoBehaviour
 
     void LateUpdate()
     {
-        _debugLogTimer += Time.deltaTime;
-        if (_debugLogTimer >= _debugLogInterval)
-        {
-            _debugLogTimer = 0f;
-            PieceState t = laserPointer != null ? laserPointer.TargetedPiece : null;
-            Debug.Log($"[PiecePreview] {gameObject.name} laserPtr={laserPointer!=null} ctrlXform={controllerTransform!=null} laserActive={laserPointer?.isActive} targeted={t?.PieceId} state={t?.CurrentState} previewActive={previewActive}");
-        }
+        double t0 = Time.realtimeSinceStartupAsDouble;
 
-        if (laserPointer == null || controllerTransform == null) return;
+        if (laserPointer == null || controllerTransform == null || previewContainer == null) return;
 
-        if (!laserPointer.isActive) { HidePreview(); return; }
+        if (!laserPointer.isActive) { HidePreview(); TrackMS("Preview: HidePreview", t0); return; }
 
         PieceState targeted = laserPointer.TargetedPiece;
         bool shouldShow = ShouldShowPreview(targeted);
@@ -174,6 +196,15 @@ public class PiecePreview : MonoBehaviour
             if (previewActive)
                 HidePreview();
         }
+
+        TrackMS("Preview: LateUpdate", t0);
+    }
+
+    void TrackMS(string label, double start)
+    {
+        float ms = (float)(Time.realtimeSinceStartupAsDouble - start) * 1000f;
+        if (ms > 1f)
+            Debug.Log($"[Perf F:{Time.frameCount}] {label}: {ms:F2}ms");
     }
 
     bool ShouldShowPreview(PieceState piece)
@@ -194,48 +225,81 @@ public class PiecePreview : MonoBehaviour
 
     void ShowPreview(PieceState piece)
     {
-        Debug.Log($"[PiecePreview] ShowPreview {gameObject.name} piece={piece.PieceId} renderers={piece.GetComponentsInChildren<MeshRenderer>().Length}");
+        double t0 = Time.realtimeSinceStartupAsDouble;
 
-        DestroyPreviewContainer();
-
+        bool samePiece = previewedPiece == piece;
         previewedPiece = piece;
-        previewContainer = new GameObject("PiecePreview");
-        previewContainer.transform.SetParent(controllerTransform, false);
-        previewContainer.transform.localPosition = previewOffset;
-        previewContainer.transform.localRotation = Quaternion.identity;
 
-        accumulatedYaw = 0f;
-        accumulatedPitch = 0f;
-
-        var renderers = piece.GetComponentsInChildren<MeshRenderer>();
-        Bounds combinedBounds = default;
-        bool hasBounds = false;
-
-        foreach (var mr in renderers)
+        if (!samePiece)
         {
-            var mf = mr.GetComponent<MeshFilter>();
-            if (mf == null || mf.sharedMesh == null) continue;
-
-            var child = new GameObject("PreviewMesh");
-            child.transform.SetParent(previewContainer.transform, false);
-            child.transform.localPosition = piece.transform.InverseTransformPoint(mr.transform.position);
-            child.transform.localRotation = Quaternion.Inverse(piece.transform.rotation) * mr.transform.rotation;
-
-            var newMf = child.AddComponent<MeshFilter>();
-            newMf.sharedMesh = mf.sharedMesh;
-
-            var newMr = child.AddComponent<MeshRenderer>();
-            if (laserPointer.TryGetOriginalMaterial(mr, out var orig))
-                newMr.sharedMaterial = orig;
-            else
-                newMr.sharedMaterial = mr.sharedMaterial;
-            newMr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            newMr.receiveShadows = false;
-
-            if (!hasBounds) { combinedBounds = mr.bounds; hasBounds = true; }
-            else combinedBounds.Encapsulate(mr.bounds);
+            BuildPreviewMeshes(piece);
         }
 
+        Quaternion pieceLocalRot = Quaternion.Inverse(controllerTransform.rotation) * piece.transform.rotation;
+        Vector3 euler = pieceLocalRot.eulerAngles;
+        accumulatedYaw = euler.y;
+        accumulatedPitch = euler.x;
+
+        if (!previewActive)
+        {
+            s_activePreviews++;
+            if (s_activePreviews == 1)
+                SetTurnEnabled(false);
+        }
+
+        previewContainer.SetActive(true);
+        previewActive = true;
+
+        Debug.Log($"[Perf F:{Time.frameCount}] Preview.ShowPreview samePiece={samePiece} activePreviews={s_activePreviews}: {(float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f:F2}ms");
+    }
+
+    void BuildPreviewMeshes(PieceState piece)
+    {
+        // Allocation-free retrieval of source renderers
+        piece.GetComponentsInChildren<MeshRenderer>(false, targetPieceRenderers);
+
+        Bounds combinedBounds = default;
+        bool hasBounds = false;
+        int activeElementCount = 0;
+
+        for (int i = 0; i < targetPieceRenderers.Count; i++)
+        {
+            MeshRenderer srcMr = targetPieceRenderers[i];
+            MeshFilter srcMf = srcMr.GetComponent<MeshFilter>();
+            if (srcMf == null || srcMf.sharedMesh == null) continue;
+
+            // Dynamically scale pool size if a puzzle piece has an unusually high number of sub-meshes
+            if (activeElementCount >= pooledFilters.Count)
+            {
+                CreatePoolElement();
+            }
+
+            // Retrieve pre-existing components from pool
+            MeshFilter targetMf = pooledFilters[activeElementCount];
+            MeshRenderer targetMr = pooledRenderers[activeElementCount];
+            GameObject childGo = targetMf.gameObject;
+
+            // Mutate data instead of destroying/constructing objects
+            targetMf.sharedMesh = srcMf.sharedMesh;
+            targetMr.sharedMaterial = srcMr.sharedMaterial;
+
+            childGo.transform.localPosition = piece.transform.InverseTransformPoint(srcMr.transform.position);
+            childGo.transform.localRotation = Quaternion.Inverse(piece.transform.rotation) * srcMr.transform.rotation;
+
+            childGo.SetActive(true);
+            activeElementCount++;
+
+            if (!hasBounds) { combinedBounds = srcMr.bounds; hasBounds = true; }
+            else combinedBounds.Encapsulate(srcMr.bounds);
+        }
+
+        // Cleanly deactivate any remaining elements in the object pool that this piece doesn't use
+        for (int i = activeElementCount; i < pooledFilters.Count; i++)
+        {
+            pooledFilters[i].gameObject.SetActive(false);
+        }
+
+        // Apply scale uniform adjustments to the container root
         if (hasBounds)
         {
             float maxDim = Mathf.Max(combinedBounds.size.x, combinedBounds.size.y, combinedBounds.size.z);
@@ -245,28 +309,14 @@ public class PiecePreview : MonoBehaviour
                 previewContainer.transform.localScale = Vector3.one * scale;
             }
         }
-
-        Quaternion pieceLocalRot = Quaternion.Inverse(controllerTransform.rotation) * piece.transform.rotation;
-        Vector3 euler = pieceLocalRot.eulerAngles;
-        accumulatedYaw = euler.y;
-        accumulatedPitch = euler.x;
-        previewContainer.transform.localRotation = Quaternion.Euler(accumulatedPitch, accumulatedYaw, 0f);
-
-        if (!previewActive)
-        {
-            s_activePreviews++;
-            if (s_activePreviews == 1)
-                SetTurnEnabled(false);
-        }
-
-        previewActive = true;
     }
 
     void UpdatePreviewTransform()
     {
         if (previewContainer == null || controllerTransform == null) return;
 
-        previewContainer.transform.localPosition = previewOffset;
+        // Maintain world space positioning manually to avoid tracked node structural latency
+        previewContainer.transform.position = controllerTransform.TransformPoint(previewOffset);
 
         if (thumbstickValue.sqrMagnitude > 0.01f)
         {
@@ -274,13 +324,13 @@ public class PiecePreview : MonoBehaviour
             accumulatedPitch -= thumbstickValue.y * rotationSpeed * Time.deltaTime;
         }
 
-        previewContainer.transform.localRotation = Quaternion.Euler(accumulatedPitch, accumulatedYaw, 0f);
+        previewContainer.transform.rotation = controllerTransform.rotation * Quaternion.Euler(accumulatedPitch, accumulatedYaw, 0f);
     }
 
     void HidePreview()
     {
-        DestroyPreviewContainer();
-        previewedPiece = null;
+        bool wasActive = previewActive;
+        double t0 = Time.realtimeSinceStartupAsDouble;
 
         if (previewActive)
         {
@@ -289,24 +339,24 @@ public class PiecePreview : MonoBehaviour
                 SetTurnEnabled(true);
         }
 
+        if (previewContainer != null)
+            previewContainer.SetActive(false);
+
         previewActive = false;
         accumulatedYaw = 0f;
         accumulatedPitch = 0f;
+
+        if (wasActive)
+            Debug.Log($"[Perf F:{Time.frameCount}] Preview.HidePreview activePreviews={s_activePreviews}: {(float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f:F2}ms");
     }
 
     static void SetTurnEnabled(bool enabled)
     {
+        double t0 = Time.realtimeSinceStartupAsDouble;
         if (s_snapTurn != null) s_snapTurn.enabled = enabled;
         if (s_continuousTurn != null) s_continuousTurn.enabled = enabled;
         if (s_continuousMove != null) s_continuousMove.enabled = enabled;
-    }
-
-    void DestroyPreviewContainer()
-    {
-        if (previewContainer != null)
-        {
-            Destroy(previewContainer);
-            previewContainer = null;
-        }
+        float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
+        Debug.Log($"[Perf F:{Time.frameCount}] Preview.SetTurnEnabled enabled={enabled}: {ms:F2}ms");
     }
 }

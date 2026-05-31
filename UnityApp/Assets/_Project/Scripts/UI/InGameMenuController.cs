@@ -143,7 +143,6 @@ public class InGameMenuController : MonoBehaviour
 
         CreateButton(go.transform, "Return to Main Menu", new Vector2(0f, 0.03f), () =>
         {
-            Time.timeScale = 1f;
             IsMenuActive = false;
             ShowPuzzlePieces();
             SceneManager.LoadScene("MainMenu");
@@ -203,7 +202,6 @@ public class InGameMenuController : MonoBehaviour
     {
         menuVisible = true;
         IsMenuActive = true;
-        Time.timeScale = 0f;
 
         if (leftController == null) FindLeftController();
         if (mainCamera == null) FindCamera();
@@ -222,7 +220,6 @@ public class InGameMenuController : MonoBehaviour
     {
         menuVisible = false;
         IsMenuActive = false;
-        Time.timeScale = 1f;
 
         if (menuLoop != null) { StopCoroutine(menuLoop); menuLoop = null; }
 
@@ -236,7 +233,7 @@ public class InGameMenuController : MonoBehaviour
     void HidePuzzlePieces()
     {
         var puzzleRoot = GameObject.Find("PuzzleRoot");
-        if (puzzleRoot != null)
+        if (puzzleRoot != null && puzzleRoot.activeInHierarchy)
         {
             foreach (var mr in puzzleRoot.GetComponentsInChildren<MeshRenderer>())
                 mr.enabled = false;
@@ -246,7 +243,7 @@ public class InGameMenuController : MonoBehaviour
     void ShowPuzzlePieces()
     {
         var puzzleRoot = GameObject.Find("PuzzleRoot");
-        if (puzzleRoot != null)
+        if (puzzleRoot != null && puzzleRoot.activeInHierarchy)
         {
             foreach (var mr in puzzleRoot.GetComponentsInChildren<MeshRenderer>())
                 mr.enabled = true;

@@ -41,8 +41,10 @@ public class LaserPointer : MonoBehaviour
 
     private PieceState targetedPiece;
     public PieceState TargetedPiece => targetedPiece;
-    private Material cachedHighlightMat;
-    private readonly List<(MeshRenderer renderer, Material original)> highlightedRenderers = new List<(MeshRenderer, Material)>();
+
+    private int lastRaycastFrame = -1;
+    private RaycastHit lastRaycastHit;
+    private bool lastRaycastHitValid;
 
     private InputActionAsset inputActions;
     private InputActionMap jigsawMap;
@@ -156,7 +158,7 @@ public class LaserPointer : MonoBehaviour
         {
             if (lineRenderer != null) lineRenderer.enabled = false;
             if (cursorIndicator != null) cursorIndicator.SetActive(false);
-            ClearHighlight();
+            
             return;
         }
 
@@ -172,7 +174,6 @@ public class LaserPointer : MonoBehaviour
             bool tooClose = Vector3.Distance(controllerTransform.position, hit.collider.transform.position) < minLaserDistance;
             if (piece != null && piece.IsInteractable() && !tooClose)
             {
-                HighlightPiece(piece);
                 targetedPiece = piece;
                 if (cursorIndicator != null)
                 {
@@ -187,7 +188,7 @@ public class LaserPointer : MonoBehaviour
             lineRenderer.SetPosition(1, controllerTransform.position + controllerTransform.forward * maxDistance);
         }
 
-        ClearHighlight();
+        targetedPiece = null;
         if (cursorIndicator != null) cursorIndicator.SetActive(false);
     }
 
@@ -206,6 +207,8 @@ public class LaserPointer : MonoBehaviour
     {
         if (Time.frameCount == lastTriggerFrame) return;
         lastTriggerFrame = Time.frameCount;
+
+        Debug.Log($"[Grab F:{Time.frameCount}] OnTriggerButton isActive={isActive} IsHolding={pieceHolder?.IsHolding} targeted={(targetedPiece != null ? targetedPiece.PieceId : -1)}");
 
         if (InGameMenuController.IsMenuActive) return;
         if (pieceHolder == null || pieceHolder.IsHolding) return;
@@ -227,8 +230,7 @@ public class LaserPointer : MonoBehaviour
         }
 
         isActive = false;
-        ClearHighlight();
-    }
+            }
 
     /// <summary>Called when trigger is released. Only releases if actually holding a piece.</summary>
     public void OnTriggerReleased()
@@ -241,9 +243,10 @@ public class LaserPointer : MonoBehaviour
     /// <summary>Initiates the fly-to-hand animation for a piece (and its cluster) and grabs on arrival.</summary>
     private void PullPiece(PieceState piece)
     {
+        double t0 = Time.realtimeSinceStartupAsDouble;
+
         isActive = false;
-        ClearHighlight();
-        pieceHolder.heldPiece = piece;
+                pieceHolder.heldPiece = piece;
 
         var cluster = (pieceHolder.snapSystem != null)
             ? pieceHolder.snapSystem.GetClusterPieceStates(piece.ClusterId)
@@ -255,6 +258,8 @@ public class LaserPointer : MonoBehaviour
 
         foreach (var p in cluster)
             p.TransitionTo(PieceStateEnum.FlyingToHand);
+
+        Debug.Log($"[Grab F:{Time.frameCount}] PullPiece pieceId={piece.PieceId} clusterSize={cluster.Count} flyDuration={flyToHandDuration}s: {(float)(Time.realtimeSinceStartupAsDouble - t0)*1000f:F2}ms");
 
         StartCoroutine(FlyClusterRoutine(cluster, delta, () =>
         {
@@ -272,6 +277,8 @@ public class LaserPointer : MonoBehaviour
         float elapsed = 0f;
         while (elapsed < flyToHandDuration)
         {
+            double t0 = Time.realtimeSinceStartupAsDouble;
+
             float t = elapsed / flyToHandDuration;
             t = t * t * (3f - 2f * t);
             Vector3 frameDelta = delta * t;
@@ -281,6 +288,10 @@ public class LaserPointer : MonoBehaviour
                     p.transform.position = startPositions[p] + frameDelta;
             }
             elapsed += Time.deltaTime;
+
+            float ms = (float)(Time.realtimeSinceStartupAsDouble - t0) * 1000f;
+            Debug.Log($"[Perf F:{Time.frameCount}] FlyCluster frame clusterSize={cluster.Count}: {ms:F2}ms");
+
             yield return null;
         }
 
@@ -292,70 +303,5 @@ public class LaserPointer : MonoBehaviour
         onArrive?.Invoke();
     }
 
-    /// <summary>Applies a highlight material to all pieces in the targeted piece's cluster.</summary>
-    private void HighlightPiece(PieceState piece)
-    {
-        if (targetedPiece == piece && highlightedRenderers.Count > 0) return;
-
-        var cluster = (pieceHolder.snapSystem != null)
-            ? pieceHolder.snapSystem.GetClusterPieceStates(piece.ClusterId)
-            : new List<PieceState> { piece };
-
-        bool sameCluster = true;
-        if (highlightedRenderers.Count != cluster.Count) sameCluster = false;
-        else
-        {
-            for (int i = 0; i < cluster.Count; i++)
-            {
-                var r = cluster[i].GetComponentInChildren<MeshRenderer>();
-                if (i >= highlightedRenderers.Count || highlightedRenderers[i].renderer != r)
-                { sameCluster = false; break; }
-            }
-        }
-
-        if (sameCluster) return;
-
-        ClearHighlight();
-        targetedPiece = piece;
-
-        if (cachedHighlightMat == null)
-            cachedHighlightMat = Resources.Load<Material>("PieceHighlight");
-        if (cachedHighlightMat == null) return;
-
-        foreach (var p in cluster)
-        {
-            var renderer = p.GetComponentInChildren<MeshRenderer>();
-            if (renderer != null)
-            {
-                highlightedRenderers.Add((renderer, renderer.material));
-                renderer.material = cachedHighlightMat;
-            }
-        }
-    }
-
-    /// <summary>Restores the original materials on all previously highlighted pieces.</summary>
-    private void ClearHighlight()
-    {
-        foreach (var (renderer, original) in highlightedRenderers)
-        {
-            if (renderer != null)
-                renderer.material = original;
-        }
-        highlightedRenderers.Clear();
-        targetedPiece = null;
-    }
-
-    public bool TryGetOriginalMaterial(MeshRenderer renderer, out Material original)
-    {
-        foreach (var (r, mat) in highlightedRenderers)
-        {
-            if (r == renderer)
-            {
-                original = mat;
-                return true;
-            }
-        }
-        original = null;
-        return false;
-    }
+    /// <summary>Applies highlight color via MaterialPropertyBlock (no material swap).</summary>
 }

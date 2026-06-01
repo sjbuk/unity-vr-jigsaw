@@ -573,14 +573,15 @@
     const mesh = meshes[meshIdx];
     const geo = mesh.geometry;
     const pos = geo.attributes.position;
-    const nFaces = geo.index ? geo.index.count / 3 : pos.count / 3;
+    const idx = geo.index;
+    const nFaces = idx ? idx.count / 3 : pos.count / 3;
 
     const edgeToFaces = new Map<string, number[]>();
 
     for (let fi = 0; fi < nFaces; fi++) {
-      const a = fi * 3;
-      const b = fi * 3 + 1;
-      const c = fi * 3 + 2;
+      const a = idx ? idx.getX(fi * 3) : fi * 3;
+      const b = idx ? idx.getX(fi * 3 + 1) : fi * 3 + 1;
+      const c = idx ? idx.getX(fi * 3 + 2) : fi * 3 + 2;
 
       const pa = `${pos.getX(a).toFixed(6)},${pos.getY(a).toFixed(6)},${pos.getZ(a).toFixed(6)}`;
       const pb = `${pos.getX(b).toFixed(6)},${pos.getY(b).toFixed(6)},${pos.getZ(b).toFixed(6)}`;

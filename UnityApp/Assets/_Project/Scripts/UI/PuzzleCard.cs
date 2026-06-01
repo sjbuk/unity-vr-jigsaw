@@ -199,7 +199,13 @@ public class PuzzleCard : MonoBehaviour
 
         modelLoadStarted = true;
         modelPreview.OnModelLoaded += OnModelPreviewLoaded;
-        _ = modelPreview.LoadModel(glbPath);
+
+        string pathToLoad = glbPath;
+        string lowpolyPath = Path.Combine(puzzleInfo.folderPath, "lowpoly_preview.glb");
+        if (File.Exists(lowpolyPath))
+            pathToLoad = lowpolyPath;
+
+        _ = modelPreview.LoadModel(pathToLoad);
     }
 
     private void OnModelPreviewLoaded()

@@ -4,8 +4,8 @@
   import ParamForm from './lib/ParamForm.svelte';
   import PieceViewer from './lib/PieceViewer.svelte';
   import PieceList from './lib/PieceList.svelte';
-  import { uploadModel, sliceJob, reassignOrphans, progressStream, listJobs, getJob, updateJobMeta, regeneratePreview } from './lib/api';
-  import type { SliceParams, SliceResult, ViewMode, JobSummary, CameraOrientation } from './types';
+  import { uploadModel, sliceJob, reassignOrphans, saveJob, progressStream, listJobs, getJob, updateJobMeta, regeneratePreview, fixOrphans, removeIslands } from './lib/api';
+  import type { SliceParams, SliceResult, ViewMode, JobSummary, CameraOrientation, FixOrphanPayload } from './types';
   import { DEFAULT_PARAMS } from './types';
 
   let activeTab: 'new' | 'previous' = $state('new');
@@ -27,6 +27,16 @@
   let previewPath = $state('');
   let previewInProgress = $state(false);
 
+  let fixOrphanMode = $state(false);
+  let destinationPiece = $state<number | null>(null);
+  let brushSize = $state(5); // mm, 1-15
+  let brushRadius = $derived(brushSize * 0.001);
+  let pendingEditCount = $state(0);
+  let pendingEditData = $state<FixOrphanPayload | null>(null);
+  let paintAction = $state<'none' | 'undo' | 'reset' | 'apply'>('none');
+  let applyingEdits = $state(false);
+  let islandMinSize = $state(100);
+
   let prevFile: File | null = $state(null);
   $effect(() => {
     if (file && file !== prevFile) {
@@ -47,6 +57,24 @@
 
   $effect(() => {
     if (!previewPath && showPreview) showPreview = false;
+  });
+
+  $effect(() => {
+    if (fixOrphanMode) {
+      showTexture = false;
+      viewMode = 'assembled';
+    } else {
+      destinationPiece = null;
+      pendingEditCount = 0;
+      pendingEditData = null;
+    }
+  });
+
+  $effect(() => {
+    const data = pendingEditData;
+    if (data && data.assignments.length > 0) {
+      handleApplyEdits(data);
+    }
   });
 
   let piecePaths: string[] = $state([]);
@@ -169,6 +197,49 @@
     }
   }
 
+  async function handleApplyEdits(data: FixOrphanPayload) {
+    if (!jobId || applyingEdits) return;
+    applyingEdits = true;
+    error = '';
+    progress = 'Applying fix orphan edits...';
+    pendingEditData = null;
+
+    try {
+      await fixOrphans(jobId, data);
+      awaitProgress(jobId, (res) => {
+        resultFromJob(res);
+        applyingEdits = false;
+        pendingEditCount = 0;
+        destinationPiece = null;
+      });
+    } catch (e) {
+      applyingEdits = false;
+      error = e instanceof Error ? e.message : String(e);
+      progress = '';
+    }
+  }
+
+  async function handleRemoveIslands() {
+    if (!jobId || destinationPiece === null) return;
+    processing = true;
+    error = '';
+    progress = 'Removing islands...';
+
+    try {
+      await removeIslands(jobId, {
+        source_piece: destinationPiece,
+        min_island_size: islandMinSize,
+      });
+      awaitProgress(jobId, (res) => {
+        resultFromJob(res);
+      });
+    } catch (e) {
+      processing = false;
+      error = e instanceof Error ? e.message : String(e);
+      progress = '';
+    }
+  }
+
   async function handleRegeneratePreview() {
     if (!jobId) return;
     previewInProgress = true;
@@ -234,11 +305,12 @@
   async function saveName() {
     if (!result) return;
     try {
-      await updateJobMeta(result.job_id, { name: jobName });
+      const saved = await saveJob(result.job_id, jobName);
+      result = saved;
       nameSaved = true;
       setTimeout(() => (nameSaved = false), 1500);
     } catch (e) {
-      error = 'Failed to save name';
+      error = e instanceof Error ? e.message : 'Failed to save name';
     }
   }
 </script>
@@ -338,6 +410,12 @@
       bind:totalFaces
       bind:previewPath
       bind:showPreview
+      bind:fixOrphanMode
+      bind:destinationPiece
+      bind:brushRadius
+      bind:pendingEditCount
+      bind:pendingEditData
+      bind:paintAction
     />
   </main>
 
@@ -374,6 +452,58 @@
         </div>
       {/if}
 
+      <div class="fix-orphan-section">
+        <button
+          class="toggle-btn orphan-toggle" class:active={fixOrphanMode}
+          onclick={() => (fixOrphanMode = !fixOrphanMode)}>Fix Orphan</button>
+        {#if fixOrphanMode}
+          <div class="brush-controls">
+            <label class="brush-label" for="brush-slider">Brush Size</label>
+            <input
+              id="brush-slider"
+              type="range" min="1" max="15" step="1"
+              bind:value={brushSize}
+              class="brush-slider"
+            />
+            <span class="brush-value">{brushSize}mm</span>
+          </div>
+          <div class="island-controls">
+            <label class="brush-label" for="island-size">Min Island Faces</label>
+            <input
+              id="island-size"
+              type="number" min="1" step="1"
+              bind:value={islandMinSize}
+              class="island-input"
+            />
+            <button
+              class="meta-btn"
+              disabled={destinationPiece === null || processing}
+              onclick={handleRemoveIslands}>
+              {processing ? 'Removing...' : 'Remove Islands'}
+            </button>
+          </div>
+          <div class="orphan-actions">
+            {#if pendingEditCount > 0}
+              <button class="meta-btn" onclick={() => (paintAction = 'undo')}>Undo Stroke</button>
+              <button class="meta-btn" onclick={() => (paintAction = 'reset')}>Reset All</button>
+            {/if}
+            <button
+              class="meta-btn" class:orphan-apply={pendingEditCount > 0}
+              disabled={pendingEditCount === 0 || destinationPiece === null || applyingEdits}
+              onclick={() => (paintAction = 'apply')}>
+              {applyingEdits ? 'Applying...' : 'Apply Changes'}
+            </button>
+          </div>
+          {#if destinationPiece === null}
+            <span class="orphan-hint">Click a piece in the list to select destination</span>
+          {:else if pendingEditCount > 0}
+            <span class="orphan-hint">{pendingEditCount} stroke(s) pending — hold Shift + drag to paint</span>
+          {:else}
+            <span class="orphan-hint">Hold Shift + drag to paint onto the selected piece (#{destinationPiece})</span>
+          {/if}
+        {/if}
+      </div>
+
       <section class="meta-section">
         <div class="meta-field">
           <label for="job-name">Name</label>
@@ -389,7 +519,7 @@
         </button>
       </section>
 
-      <PieceList pieces={result.pieces} bind:visible={pieceVisibility} />
+      <PieceList pieces={result.pieces} bind:visible={pieceVisibility} bind:fixOrphanMode bind:destinationPiece />
     </aside>
   {/if}
 </div>
@@ -561,6 +691,97 @@
     border-radius: 6px;
     padding: 2px;
     flex-shrink: 0;
+  }
+  .fix-orphan-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.3rem 0;
+    border-bottom: 1px solid #333;
+    flex-shrink: 0;
+  }
+  .orphan-toggle {
+    width: 100%;
+    padding: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .orphan-toggle.active {
+    background: #8fbc3a;
+    color: #1a1a2e;
+  }
+  .brush-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .brush-label {
+    font-size: 0.7rem;
+    color: #888;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .brush-slider {
+    flex: 1;
+    accent-color: #8fbc3a;
+    height: 4px;
+  }
+  .brush-value {
+    font-size: 0.7rem;
+    color: #aaa;
+    min-width: 2.5rem;
+    text-align: right;
+    font-family: monospace;
+  }
+  .island-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .island-input {
+    width: 4rem;
+    padding: 0.2rem 0.3rem;
+    background: #222;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #eee;
+    font-size: 0.7rem;
+    font-family: monospace;
+  }
+  .island-input:focus {
+    outline: none;
+    border-color: #4f8cff;
+  }
+  .island-controls .meta-btn {
+    flex: 1;
+    font-size: 0.65rem;
+    padding: 0.3rem 0.4rem;
+  }
+  .orphan-actions {
+    display: flex;
+    gap: 0.25rem;
+  }
+  .orphan-actions .meta-btn {
+    flex: 1;
+    font-size: 0.65rem;
+    padding: 0.3rem 0.2rem;
+  }
+  .orphan-apply {
+    background: #4a7a2a !important;
+    border-color: #6a9a3a !important;
+    color: #d4edb0 !important;
+  }
+  .orphan-apply:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  .orphan-hint {
+    font-size: 0.7rem;
+    color: #8fbc3a;
+    font-style: italic;
+    text-align: center;
   }
   .meta-section {
     display: flex;

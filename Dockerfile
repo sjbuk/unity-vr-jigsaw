@@ -12,6 +12,12 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libqt5gui5 \
+    libopengl0 \
+    libp11-kit0 \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY tauri-app/backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -20,7 +26,7 @@ COPY tauri-app/backend/ ./backend/
 COPY --from=frontend /app/dist ./dist
 
 ENV PYTHONPATH=/app:/app/tools/jigsaw_generator
-RUN mkdir -p /app/data/outputs
+RUN mkdir -p /app/data/outputs /app/data/scratch
 
 WORKDIR /app/backend
 EXPOSE 8000

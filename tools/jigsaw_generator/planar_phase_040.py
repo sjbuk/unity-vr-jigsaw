@@ -300,21 +300,50 @@ def _get_uv_040(mesh: trimesh.Trimesh) -> np.ndarray | None:
     return None
 
 
-def _simplify_fast(mesh: trimesh.Trimesh, target_faces: int) -> "tuple[np.ndarray, np.ndarray, np.ndarray | None]":
-    """Simplify via quadric edge collapse (fast_simplification). UVs transferred via nearest-neighbour."""
-    from fast_simplification import simplify
+def _simplify_pymeshlab(mesh: trimesh.Trimesh, target_faces: int) -> "tuple[np.ndarray, np.ndarray, np.ndarray | None]":
+    """Simplify via PyMeshLab quadric edge collapse. UVs transferred via nearest-neighbour.
+
+    ``preserveboundary=True`` (default) prevents boundary-edge collapses
+    that would otherwise open holes, unlike ``fast_simplification`` which
+    has no such safeguard.
+    """
+    # Headless Qt — pymeshlab bundles Qt5 which tries to open a display
+    # at import time on Linux.  The offscreen platform avoids this.
+    import os as _os
+    if "QT_QPA_PLATFORM" not in _os.environ:
+        _os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
+    import pymeshlab
 
     verts_in = np.asarray(mesh.vertices, dtype=np.float64)
     faces_in = np.asarray(mesh.faces, dtype=np.int32)
     uvs = _get_uv_040(mesh)
 
-    verts_out, faces_out = simplify(
-        verts_in, faces_in,
-        target_count=target_faces,
-        agg=7.0,
+    ms = pymeshlab.MeshSet()
+    ms.add_mesh(
+        pymeshlab.Mesh(vertex_matrix=verts_in, face_matrix=faces_in), "input",
     )
 
-    if uvs is not None and len(verts_out) > 0 and len(verts_in) > 0:
+    ms.meshing_remove_duplicate_vertices()
+
+    ms.meshing_decimation_quadric_edge_collapse(
+        targetfacenum=target_faces,
+        optimalplacement=True,
+        preservenormal=True,
+        preservetopology=True,
+        qualitythr=0.5,
+    )
+
+    ms.meshing_remove_duplicate_faces()
+    ms.meshing_remove_unreferenced_vertices()
+
+    out = ms.current_mesh()
+    verts_out = np.asarray(out.vertex_matrix(), dtype=np.float64)
+    faces_out = np.asarray(out.face_matrix(), dtype=np.int32)
+
+    # Transfer UVs via nearest-neighbour (MeshLab's non-texture decimation
+    # does not preserve UVs, so we re-apply from the original mesh).
+    if uvs is not None and len(verts_out) > 0:
         tree = cKDTree(verts_in)
         _, nn_idx = tree.query(verts_out)
         uvs_out = uvs[nn_idx].copy()
@@ -330,12 +359,14 @@ def generate_lowpoly_preview(
     target_faces: int = 2000,
 ) -> "tuple[int | None, int | None]":
     """
-    Generate a low-poly preview mesh via quadric edge collapse and export as GLB.
+    Generate a low-poly preview mesh via PyMeshLab and export as GLB.
 
-    Uses ``fast_simplification`` (quadric edge collapse) for high-quality
-    simplification that preserves UVs.  The simplified mesh is scaled to fit
-    within a [2 wide, 1 high, 1 deep] box preserving proportions, centred on
-    X/Z, and grounded at Y=0.
+    Uses ``meshing_decimation_quadric_edge_collapse`` with
+    ``preserveboundary=True`` (default) which prevents boundary-edge
+    collapses that open holes.  UVs are transferred from the original
+    mesh via nearest-neighbour lookup.  The simplified mesh is scaled
+    to fit within a [2 wide, 1 high, 1 deep] box preserving proportions,
+    centred on X/Z, grounded at Y=0.
 
     Parameters
     ----------
@@ -355,13 +386,12 @@ def generate_lowpoly_preview(
         if float(extents.max()) < 1e-10:
             return None, None
 
-        # ---- 1.  quadric edge collapse simplification ----
+        # ---- 1.  pymeshlab simplification ----
         try:
-            new_verts, new_faces, new_uvs = _simplify_fast(mesh, target_faces)
-        except ImportError:
+            new_verts, new_faces, new_uvs = _simplify_pymeshlab(mesh, target_faces)
+        except Exception as exc:
             print(
-                "[Phase 4] WARNING: fast_simplification not installed; "
-                "install with: pip install fast_simplification",
+                f"[Phase 4] WARNING: pymeshlab simplification failed: {exc}",
                 file=sys.stderr,
             )
             return None, None
@@ -391,7 +421,7 @@ def generate_lowpoly_preview(
         preview.export(output_path)
         print(
             f"[Phase 4]   low-poly preview: {len(preview.vertices)} verts, "
-            f"{len(preview.faces)} faces (quadric edge collapse, "
+            f"{len(preview.faces)} faces (pymeshlab quadric edge collapse, "
             f"target={target_faces})",
             file=sys.stderr,
             flush=True,

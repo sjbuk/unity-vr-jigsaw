@@ -23,7 +23,8 @@
     brushRadius = $bindable(0.025),
     pendingEditCount = $bindable(0),
     pendingEditData = $bindable(null as FixOrphanPayload | null),
-    paintAction = $bindable('none' as 'none' | 'undo' | 'reset' | 'apply'),
+    paintAction = $bindable('none' as 'none' | 'undo' | 'reset' | 'apply' | 'detectIslands'),
+    islandMinSize = $bindable(100 as number),
   }: {
     piecePaths?: string[];
     backPiecePaths?: string[];
@@ -42,7 +43,8 @@
     brushRadius?: number;
     pendingEditCount?: number;
     pendingEditData?: FixOrphanPayload | null;
-    paintAction?: 'none' | 'undo' | 'reset' | 'apply';
+    paintAction?: 'none' | 'undo' | 'reset' | 'apply' | 'detectIslands';
+    islandMinSize?: number;
   } = $props();
 
   let container: HTMLDivElement;
@@ -94,6 +96,8 @@
   let brushCursorX = $state(0);
   let brushCursorY = $state(0);
   let isMouseOverViewer = $state(false);
+  let islandHighlights = new Map<number, Set<number>>();
+  const islandHighlightColor = new THREE.Color().setHSL(0.55, 0.9, 0.5);
 
   function srcUrl(relPath: string): string {
     return outputUrl(jobId, relPath);
@@ -435,6 +439,7 @@
     paintStrokes = [];
     currentStroke.clear();
     faceCentroids.clear();
+    islandHighlights.clear();
     isPainting = false;
     updateMaterials();
   }
@@ -561,6 +566,151 @@
     paintStrokes = [];
     currentStroke.clear();
     pendingEditCount = 0;
+    clearIslandHighlights();
+  }
+
+  function buildFaceAdjacency(meshIdx: number): Map<number, number[]> {
+    const mesh = meshes[meshIdx];
+    const geo = mesh.geometry;
+    const pos = geo.attributes.position;
+    const nFaces = geo.index ? geo.index.count / 3 : pos.count / 3;
+
+    const edgeToFaces = new Map<string, number[]>();
+
+    for (let fi = 0; fi < nFaces; fi++) {
+      const a = fi * 3;
+      const b = fi * 3 + 1;
+      const c = fi * 3 + 2;
+
+      const pa = `${pos.getX(a).toFixed(6)},${pos.getY(a).toFixed(6)},${pos.getZ(a).toFixed(6)}`;
+      const pb = `${pos.getX(b).toFixed(6)},${pos.getY(b).toFixed(6)},${pos.getZ(b).toFixed(6)}`;
+      const pc = `${pos.getX(c).toFixed(6)},${pos.getY(c).toFixed(6)},${pos.getZ(c).toFixed(6)}`;
+
+      const edges = [[pa, pb], [pb, pc], [pc, pa]] as const;
+      for (const [v1, v2] of edges) {
+        const key = v1 < v2 ? `${v1}|${v2}` : `${v2}|${v1}`;
+        if (!edgeToFaces.has(key)) edgeToFaces.set(key, []);
+        edgeToFaces.get(key)!.push(fi);
+      }
+    }
+
+    const adj = new Map<number, number[]>();
+    for (let fi = 0; fi < nFaces; fi++) adj.set(fi, []);
+
+    for (const [, faceList] of edgeToFaces) {
+      if (faceList.length >= 2) {
+        for (let i = 0; i < faceList.length; i++) {
+          for (let j = i + 1; j < faceList.length; j++) {
+            const f0 = faceList[i], f1 = faceList[j];
+            adj.get(f0)!.push(f1);
+            adj.get(f1)!.push(f0);
+          }
+        }
+      }
+    }
+
+    return adj;
+  }
+
+  function findConnectedComponents(faceCount: number, adjacency: Map<number, number[]>): Set<number>[] {
+    const visited = new Set<number>();
+    const components: Set<number>[] = [];
+
+    for (let fi = 0; fi < faceCount; fi++) {
+      if (visited.has(fi)) continue;
+
+      const component = new Set<number>();
+      const queue = [fi];
+      visited.add(fi);
+
+      while (queue.length > 0) {
+        const f = queue.shift()!;
+        component.add(f);
+        for (const neighbor of adjacency.get(f) || []) {
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor);
+            queue.push(neighbor);
+          }
+        }
+      }
+
+      components.push(component);
+    }
+
+    return components;
+  }
+
+  function clearIslandHighlights() {
+    for (const [meshIdx, faceSet] of islandHighlights) {
+      const mesh = meshes[meshIdx];
+      if (!mesh) continue;
+      const col = mesh.geometry.attributes.color;
+      const orig = originalVertexColors.get(meshIdx);
+      if (!col || !orig) continue;
+      for (const fi of faceSet) {
+        const a = fi * 3, b = fi * 3 + 1, c = fi * 3 + 2;
+        col.setXYZ(a, orig[a * 3], orig[a * 3 + 1], orig[a * 3 + 2]);
+        col.setXYZ(b, orig[b * 3], orig[b * 3 + 1], orig[b * 3 + 2]);
+        col.setXYZ(c, orig[c * 3], orig[c * 3 + 1], orig[c * 3 + 2]);
+      }
+      col.needsUpdate = true;
+    }
+    islandHighlights.clear();
+  }
+
+  function reapplyIslandHighlights() {
+    for (const [meshIdx, faceSet] of islandHighlights) {
+      const mesh = meshes[meshIdx];
+      if (!mesh) continue;
+      const col = mesh.geometry.attributes.color;
+      if (!col) continue;
+      for (const fi of faceSet) {
+        const a = fi * 3, b = fi * 3 + 1, c = fi * 3 + 2;
+        col.setXYZ(a, islandHighlightColor.r, islandHighlightColor.g, islandHighlightColor.b);
+        col.setXYZ(b, islandHighlightColor.r, islandHighlightColor.g, islandHighlightColor.b);
+        col.setXYZ(c, islandHighlightColor.r, islandHighlightColor.g, islandHighlightColor.b);
+      }
+      col.needsUpdate = true;
+    }
+  }
+
+  function detectAndPaintIslands(pieceIdx: number, minSize: number) {
+    clearIslandHighlights();
+
+    for (let i = 0; i < meshes.length; i++) {
+      if (meshPieceIndex[i] !== pieceIdx || !meshIsFront[i]) continue;
+
+      const mesh = meshes[i];
+      const geo = mesh.geometry;
+      const nFaces = geo.index ? geo.index.count / 3 : geo.attributes.position.count / 3;
+
+      if (nFaces < 2) continue;
+
+      const adjacency = buildFaceAdjacency(i);
+      const components = findConnectedComponents(nFaces, adjacency);
+
+      if (components.length <= 1) continue;
+
+      const islandFaces = new Set<number>();
+      for (const comp of components) {
+        if (comp.size < minSize) {
+          for (const fi of comp) islandFaces.add(fi);
+        }
+      }
+
+      if (islandFaces.size === 0) continue;
+
+      islandHighlights.set(i, islandFaces);
+
+      const colorAttr = geo.attributes.color;
+      for (const fi of islandFaces) {
+        const a = fi * 3, b = fi * 3 + 1, c = fi * 3 + 2;
+        colorAttr.setXYZ(a, islandHighlightColor.r, islandHighlightColor.g, islandHighlightColor.b);
+        colorAttr.setXYZ(b, islandHighlightColor.r, islandHighlightColor.g, islandHighlightColor.b);
+        colorAttr.setXYZ(c, islandHighlightColor.r, islandHighlightColor.g, islandHighlightColor.b);
+      }
+      colorAttr.needsUpdate = true;
+    }
   }
 
   function buildPayload(): FixOrphanPayload | null {
@@ -676,6 +826,8 @@
     }
     previousHighlighted.clear();
 
+    reapplyIslandHighlights();
+
     if (pieceIdx === null || !fixOrphanMode) return;
 
     const red = new THREE.Color().setHSL(0, 0.85, 0.5);
@@ -684,8 +836,10 @@
         const mesh = meshes[i];
         const col = mesh.geometry.attributes.color;
         if (!col) continue;
+        const islandSet = islandHighlights.get(i);
         const n = col.count;
         for (let j = 0; j < n; j++) {
+          if (islandSet && islandSet.has(Math.floor(j / 3))) continue;
           col.setXYZ(j, red.r, red.g, red.b);
         }
         col.needsUpdate = true;
@@ -991,6 +1145,11 @@
       paintAction = 'none';
     } else if (action === 'apply') {
       pendingEditData = buildPayload();
+      paintAction = 'none';
+    } else if (action === 'detectIslands') {
+      if (destinationPiece !== null) {
+        detectAndPaintIslands(destinationPiece, islandMinSize);
+      }
       paintAction = 'none';
     }
   });

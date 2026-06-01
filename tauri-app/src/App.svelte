@@ -4,7 +4,7 @@
   import ParamForm from './lib/ParamForm.svelte';
   import PieceViewer from './lib/PieceViewer.svelte';
   import PieceList from './lib/PieceList.svelte';
-  import { uploadModel, sliceJob, reassignOrphans, saveJob, progressStream, listJobs, getJob, updateJobMeta, regeneratePreview, fixOrphans, removeIslands } from './lib/api';
+  import { uploadModel, sliceJob, reassignOrphans, saveJob, progressStream, listJobs, getJob, updateJobMeta, regeneratePreview, fixOrphans } from './lib/api';
   import type { SliceParams, SliceResult, ViewMode, JobSummary, CameraOrientation, FixOrphanPayload } from './types';
   import { DEFAULT_PARAMS } from './types';
 
@@ -33,7 +33,7 @@
   let brushRadius = $derived(brushSize * 0.001);
   let pendingEditCount = $state(0);
   let pendingEditData = $state<FixOrphanPayload | null>(null);
-  let paintAction = $state<'none' | 'undo' | 'reset' | 'apply'>('none');
+  let paintAction = $state<'none' | 'undo' | 'reset' | 'apply' | 'detectIslands'>('none');
   let applyingEdits = $state(false);
   let islandMinSize = $state(100);
 
@@ -219,27 +219,6 @@
     }
   }
 
-  async function handleRemoveIslands() {
-    if (!jobId || destinationPiece === null) return;
-    processing = true;
-    error = '';
-    progress = 'Removing islands...';
-
-    try {
-      await removeIslands(jobId, {
-        source_piece: destinationPiece,
-        min_island_size: islandMinSize,
-      });
-      awaitProgress(jobId, (res) => {
-        resultFromJob(res);
-      });
-    } catch (e) {
-      processing = false;
-      error = e instanceof Error ? e.message : String(e);
-      progress = '';
-    }
-  }
-
   async function handleRegeneratePreview() {
     if (!jobId) return;
     previewInProgress = true;
@@ -416,6 +395,7 @@
       bind:pendingEditCount
       bind:pendingEditData
       bind:paintAction
+      bind:islandMinSize
     />
   </main>
 
@@ -477,9 +457,9 @@
             />
             <button
               class="meta-btn"
-              disabled={destinationPiece === null || processing}
-              onclick={handleRemoveIslands}>
-              {processing ? 'Removing...' : 'Remove Islands'}
+              disabled={destinationPiece === null}
+              onclick={() => (paintAction = 'detectIslands')}>
+              Detect Islands
             </button>
           </div>
           <div class="orphan-actions">

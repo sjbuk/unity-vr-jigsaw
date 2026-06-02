@@ -3,7 +3,7 @@
   import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
   import { outputUrl } from './api';
-  import type { ViewMode, CameraOrientation } from '../types';
+  import type { ViewMode, CameraOrientation, FixOrphanPayload } from '../types';
 
   let {
     piecePaths = $bindable([]),
@@ -18,6 +18,13 @@
     totalFaces = $bindable(0),
     previewPath = $bindable(''),
     showPreview = $bindable(false),
+    fixOrphanMode = $bindable(false),
+    destinationPiece = $bindable(null as number | null),
+    brushRadius = $bindable(0.025),
+    pendingEditCount = $bindable(0),
+    pendingEditData = $bindable(null as FixOrphanPayload | null),
+    paintAction = $bindable('none' as 'none' | 'undo' | 'reset' | 'apply' | 'detectIslands'),
+    islandMinSize = $bindable(100 as number),
   }: {
     piecePaths?: string[];
     backPiecePaths?: string[];
@@ -31,6 +38,13 @@
     totalFaces?: number;
     previewPath?: string;
     showPreview?: boolean;
+    fixOrphanMode?: boolean;
+    destinationPiece?: number | null;
+    brushRadius?: number;
+    pendingEditCount?: number;
+    pendingEditData?: FixOrphanPayload | null;
+    paintAction?: 'none' | 'undo' | 'reset' | 'apply' | 'detectIslands';
+    islandMinSize?: number;
   } = $props();
 
   let container: HTMLDivElement;
@@ -44,6 +58,7 @@
   const meshes: THREE.Mesh[] = [];
   const originalMaterials: (THREE.Material | THREE.Material[] | null)[] = [];
   const meshPieceIndex: number[] = [];
+  const meshIsFront: boolean[] = [];
   let loader: GLTFLoader;
 
   let raycaster: THREE.Raycaster | null = null;
@@ -59,6 +74,30 @@
   let mouseNDC = new THREE.Vector2();
   let isSimDragging = false;
   let cleanupSimListeners: (() => void) | null = null;
+  let brushCursorDiameter = $derived.by(() => {
+    if (!camera || !renderer) return Math.max(brushRadius * 400, 4);
+    const dist = camera.position.distanceTo(controls?.target ?? new THREE.Vector3());
+    const vFOV = (camera.fov * Math.PI) / 180;
+    const heightAtTarget = 2 * Math.tan(vFOV / 2) * Math.max(dist, 0.1);
+    const pxPerUnit = (renderer.domElement.clientHeight || 600) / heightAtTarget;
+    return Math.max(brushRadius * pxPerUnit * 2, 4);
+  });
+
+  // Fix Orphan mode state
+  let faceReassignments = new Map<number, Set<number>>();
+  let paintStrokes: Array<Map<number, Set<number>>> = [];
+  let originalVertexColors = new Map<number, Float32Array>();
+  let originalGeometries = new Map<number, THREE.BufferGeometry>();
+  let faceCentroids = new Map<number, THREE.Vector3[]>();
+  let previousHighlighted = new Set<number>();
+  let isPainting = false;
+  let currentStroke = new Map<number, Set<number>>();
+  let cleanupFixOrphanListeners: (() => void) | null = null;
+  let brushCursorX = $state(0);
+  let brushCursorY = $state(0);
+  let isMouseOverViewer = $state(false);
+  let islandHighlights = new Map<number, Set<number>>();
+  const islandHighlightColor = new THREE.Color().setHSL(0.55, 0.9, 0.5);
 
   function srcUrl(relPath: string): string {
     return outputUrl(jobId, relPath);
@@ -120,11 +159,12 @@
     return new THREE.Color().setHSL((index * 0.618033988749895) % 1.0, 0.65, 0.45);
   }
 
-  function addMesh(m: THREE.Mesh, pieceIdx: number, offset?: THREE.Vector3) {
+  function addMesh(m: THREE.Mesh, pieceIdx: number, offset?: THREE.Vector3, isFront: boolean = true) {
     m.geometry.computeVertexNormals();
     const meshIdx = meshes.length;
     originalMaterials.push(m.material ?? null);
     meshPieceIndex.push(pieceIdx);
+    meshIsFront.push(isFront);
     applyMeshMaterial(m, pieceIdx, meshIdx);
     m.castShadow = true;
     if (offset) m.position.copy(offset);
@@ -344,6 +384,473 @@
     return Math.floor(count);
   }
 
+  // ---------------------------------------------------------------------------
+  // Fix Orphan helpers
+  // ---------------------------------------------------------------------------
+
+  function ensureVertexColors() {
+    faceCentroids.clear();
+    for (let i = 0; i < meshes.length; i++) {
+      const mesh = meshes[i];
+      const pieceIdx = meshPieceIndex[i];
+
+      if (!originalGeometries.has(i)) {
+        originalGeometries.set(i, mesh.geometry.clone());
+        if (mesh.geometry.index) {
+          mesh.geometry = mesh.geometry.toNonIndexed();
+        }
+      }
+
+      const geo = mesh.geometry;
+      const n = geo.attributes.position.count;
+
+      const colors = new Float32Array(n * 3);
+      const c = pieceColor(pieceIdx);
+      for (let j = 0; j < n; j++) {
+        colors[j * 3] = c.r;
+        colors[j * 3 + 1] = c.g;
+        colors[j * 3 + 2] = c.b;
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+      if (!originalVertexColors.has(i)) {
+        originalVertexColors.set(i, new Float32Array(geo.attributes.color.array));
+      }
+
+      if (mesh.material instanceof THREE.MeshPhongMaterial) {
+        mesh.material.vertexColors = true;
+        mesh.material.color.set(0xffffff);
+        mesh.material.needsUpdate = true;
+      }
+    }
+  }
+
+  function restoreOriginalMaterials() {
+    for (const [i, origGeo] of originalGeometries) {
+      const mesh = meshes[i];
+      if (!mesh) continue;
+      mesh.geometry.dispose();
+      mesh.geometry = origGeo;
+    }
+    originalGeometries.clear();
+    originalVertexColors.clear();
+    previousHighlighted.clear();
+    faceReassignments.clear();
+    paintStrokes = [];
+    currentStroke.clear();
+    faceCentroids.clear();
+    islandHighlights.clear();
+    isPainting = false;
+    updateMaterials();
+  }
+
+  function computeFaceCentroids(mesh: THREE.Mesh): THREE.Vector3[] {
+    mesh.updateMatrixWorld(true);
+    const geo = mesh.geometry;
+    const pos = geo.attributes.position;
+    const idx = geo.index;
+    const nFaces = idx ? idx.count / 3 : pos.count / 3;
+    const centroids: THREE.Vector3[] = new Array(nFaces);
+    const va = new THREE.Vector3();
+    const vb = new THREE.Vector3();
+    const vc = new THREE.Vector3();
+    const center = new THREE.Vector3();
+
+    for (let i = 0; i < nFaces; i++) {
+      const a = idx ? idx.getX(i * 3) : i * 3;
+      const b = idx ? idx.getX(i * 3 + 1) : i * 3 + 1;
+      const cIdx = idx ? idx.getX(i * 3 + 2) : i * 3 + 2;
+      va.set(pos.getX(a), pos.getY(a), pos.getZ(a));
+      vb.set(pos.getX(b), pos.getY(b), pos.getZ(b));
+      vc.set(pos.getX(cIdx), pos.getY(cIdx), pos.getZ(cIdx));
+      center.copy(va).add(vb).add(vc).divideScalar(3);
+      centroids[i] = center.clone().applyMatrix4(mesh.matrixWorld);
+    }
+    return centroids;
+  }
+
+  function paintFace(meshIdx: number, mesh: THREE.Mesh, faceIdx: number) {
+    if (!faceReassignments.has(meshIdx)) {
+      faceReassignments.set(meshIdx, new Set());
+    }
+    const existing = faceReassignments.get(meshIdx)!;
+    if (existing.has(faceIdx)) return;
+
+    existing.add(faceIdx);
+
+    if (!currentStroke.has(meshIdx)) {
+      currentStroke.set(meshIdx, new Set());
+    }
+    currentStroke.get(meshIdx)!.add(faceIdx);
+
+    const geo = mesh.geometry;
+    const idx = geo.index;
+    const color = geo.attributes.color;
+    const destColor = new THREE.Color().setHSL(0, 0.85, 0.5);
+
+    const a = idx ? idx.getX(faceIdx * 3) : faceIdx * 3;
+    const b = idx ? idx.getX(faceIdx * 3 + 1) : faceIdx * 3 + 1;
+    const c = idx ? idx.getX(faceIdx * 3 + 2) : faceIdx * 3 + 2;
+
+    color.setXYZ(a, destColor.r, destColor.g, destColor.b);
+    color.setXYZ(b, destColor.r, destColor.g, destColor.b);
+    color.setXYZ(c, destColor.r, destColor.g, destColor.b);
+    color.needsUpdate = true;
+  }
+
+  function paintFacesAtIntersect(intersect: THREE.Intersection) {
+    const mesh = intersect.object as THREE.Mesh;
+    const meshIdx = meshes.indexOf(mesh);
+    if (meshIdx < 0) return;
+    if (meshIdx >= meshIsFront.length || !meshIsFront[meshIdx]) return;
+    const sourcePiece = meshPieceIndex[meshIdx];
+    if (sourcePiece === destinationPiece) return;
+
+    if (!faceCentroids.has(meshIdx)) {
+      faceCentroids.set(meshIdx, computeFaceCentroids(mesh));
+    }
+    const centroids = faceCentroids.get(meshIdx)!;
+    const hitPoint = intersect.point;
+    const brushRadiusSq = brushRadius * brushRadius;
+    const hitFaceIdx = intersect.faceIndex!;
+
+    paintFace(meshIdx, mesh, hitFaceIdx);
+
+    for (let i = 0; i < centroids.length; i++) {
+      if (i === hitFaceIdx) continue;
+      if (centroids[i].distanceToSquared(hitPoint) <= brushRadiusSq) {
+        paintFace(meshIdx, mesh, i);
+      }
+    }
+  }
+
+  function undoLastStroke() {
+    const stroke = paintStrokes.pop();
+    if (!stroke) return;
+    for (const [meshIdx, faceSet] of stroke) {
+      const mesh = meshes[meshIdx];
+      if (!mesh) continue;
+      const geo = mesh.geometry;
+      const idx = geo.index;
+      const color = geo.attributes.color;
+      const origColor = originalVertexColors.get(meshIdx);
+      if (!origColor) continue;
+
+      for (const faceIdx of faceSet) {
+        const a = idx ? idx.getX(faceIdx * 3) : faceIdx * 3;
+        const b = idx ? idx.getX(faceIdx * 3 + 1) : faceIdx * 3 + 1;
+        const c = idx ? idx.getX(faceIdx * 3 + 2) : faceIdx * 3 + 2;
+
+        color.setXYZ(a, origColor[a * 3], origColor[a * 3 + 1], origColor[a * 3 + 2]);
+        color.setXYZ(b, origColor[b * 3], origColor[b * 3 + 1], origColor[b * 3 + 2]);
+        color.setXYZ(c, origColor[c * 3], origColor[c * 3 + 1], origColor[c * 3 + 2]);
+
+        faceReassignments.get(meshIdx)?.delete(faceIdx);
+      }
+      color.needsUpdate = true;
+    }
+    pendingEditCount = paintStrokes.length;
+  }
+
+  function resetAllEdits() {
+    for (const [meshIdx, origColors] of originalVertexColors) {
+      const mesh = meshes[meshIdx];
+      if (!mesh) continue;
+      const col = mesh.geometry.attributes.color;
+      if (col) {
+        col.array.set(origColors);
+        col.needsUpdate = true;
+      }
+    }
+    faceReassignments.clear();
+    paintStrokes = [];
+    currentStroke.clear();
+    pendingEditCount = 0;
+    clearIslandHighlights();
+  }
+
+  function buildFaceAdjacency(meshIdx: number): Map<number, number[]> {
+    const mesh = meshes[meshIdx];
+    const geo = mesh.geometry;
+    const pos = geo.attributes.position;
+    const idx = geo.index;
+    const nFaces = idx ? idx.count / 3 : pos.count / 3;
+
+    const edgeToFaces = new Map<string, number[]>();
+
+    for (let fi = 0; fi < nFaces; fi++) {
+      const a = idx ? idx.getX(fi * 3) : fi * 3;
+      const b = idx ? idx.getX(fi * 3 + 1) : fi * 3 + 1;
+      const c = idx ? idx.getX(fi * 3 + 2) : fi * 3 + 2;
+
+      const pa = `${pos.getX(a).toFixed(6)},${pos.getY(a).toFixed(6)},${pos.getZ(a).toFixed(6)}`;
+      const pb = `${pos.getX(b).toFixed(6)},${pos.getY(b).toFixed(6)},${pos.getZ(b).toFixed(6)}`;
+      const pc = `${pos.getX(c).toFixed(6)},${pos.getY(c).toFixed(6)},${pos.getZ(c).toFixed(6)}`;
+
+      const edges = [[pa, pb], [pb, pc], [pc, pa]] as const;
+      for (const [v1, v2] of edges) {
+        const key = v1 < v2 ? `${v1}|${v2}` : `${v2}|${v1}`;
+        if (!edgeToFaces.has(key)) edgeToFaces.set(key, []);
+        edgeToFaces.get(key)!.push(fi);
+      }
+    }
+
+    const adj = new Map<number, number[]>();
+    for (let fi = 0; fi < nFaces; fi++) adj.set(fi, []);
+
+    for (const [, faceList] of edgeToFaces) {
+      if (faceList.length >= 2) {
+        for (let i = 0; i < faceList.length; i++) {
+          for (let j = i + 1; j < faceList.length; j++) {
+            const f0 = faceList[i], f1 = faceList[j];
+            adj.get(f0)!.push(f1);
+            adj.get(f1)!.push(f0);
+          }
+        }
+      }
+    }
+
+    return adj;
+  }
+
+  function findConnectedComponents(faceCount: number, adjacency: Map<number, number[]>): Set<number>[] {
+    const visited = new Set<number>();
+    const components: Set<number>[] = [];
+
+    for (let fi = 0; fi < faceCount; fi++) {
+      if (visited.has(fi)) continue;
+
+      const component = new Set<number>();
+      const queue = [fi];
+      visited.add(fi);
+
+      while (queue.length > 0) {
+        const f = queue.shift()!;
+        component.add(f);
+        for (const neighbor of adjacency.get(f) || []) {
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor);
+            queue.push(neighbor);
+          }
+        }
+      }
+
+      components.push(component);
+    }
+
+    return components;
+  }
+
+  function clearIslandHighlights() {
+    for (const [meshIdx, faceSet] of islandHighlights) {
+      const mesh = meshes[meshIdx];
+      if (!mesh) continue;
+      const col = mesh.geometry.attributes.color;
+      const orig = originalVertexColors.get(meshIdx);
+      if (!col || !orig) continue;
+      for (const fi of faceSet) {
+        const a = fi * 3, b = fi * 3 + 1, c = fi * 3 + 2;
+        col.setXYZ(a, orig[a * 3], orig[a * 3 + 1], orig[a * 3 + 2]);
+        col.setXYZ(b, orig[b * 3], orig[b * 3 + 1], orig[b * 3 + 2]);
+        col.setXYZ(c, orig[c * 3], orig[c * 3 + 1], orig[c * 3 + 2]);
+      }
+      col.needsUpdate = true;
+    }
+    islandHighlights.clear();
+  }
+
+  function reapplyIslandHighlights() {
+    for (const [meshIdx, faceSet] of islandHighlights) {
+      const mesh = meshes[meshIdx];
+      if (!mesh) continue;
+      const col = mesh.geometry.attributes.color;
+      if (!col) continue;
+      for (const fi of faceSet) {
+        const a = fi * 3, b = fi * 3 + 1, c = fi * 3 + 2;
+        col.setXYZ(a, islandHighlightColor.r, islandHighlightColor.g, islandHighlightColor.b);
+        col.setXYZ(b, islandHighlightColor.r, islandHighlightColor.g, islandHighlightColor.b);
+        col.setXYZ(c, islandHighlightColor.r, islandHighlightColor.g, islandHighlightColor.b);
+      }
+      col.needsUpdate = true;
+    }
+  }
+
+  function detectAndPaintIslands(pieceIdx: number, minSize: number) {
+    clearIslandHighlights();
+
+    for (let i = 0; i < meshes.length; i++) {
+      if (meshPieceIndex[i] !== pieceIdx || !meshIsFront[i]) continue;
+
+      const mesh = meshes[i];
+      const geo = mesh.geometry;
+      const nFaces = geo.index ? geo.index.count / 3 : geo.attributes.position.count / 3;
+
+      if (nFaces < 2) continue;
+
+      const adjacency = buildFaceAdjacency(i);
+      const components = findConnectedComponents(nFaces, adjacency);
+
+      if (components.length <= 1) continue;
+
+      const islandFaces = new Set<number>();
+      for (const comp of components) {
+        if (comp.size < minSize) {
+          for (const fi of comp) islandFaces.add(fi);
+        }
+      }
+
+      if (islandFaces.size === 0) continue;
+
+      islandHighlights.set(i, islandFaces);
+
+      const colorAttr = geo.attributes.color;
+      for (const fi of islandFaces) {
+        const a = fi * 3, b = fi * 3 + 1, c = fi * 3 + 2;
+        colorAttr.setXYZ(a, islandHighlightColor.r, islandHighlightColor.g, islandHighlightColor.b);
+        colorAttr.setXYZ(b, islandHighlightColor.r, islandHighlightColor.g, islandHighlightColor.b);
+        colorAttr.setXYZ(c, islandHighlightColor.r, islandHighlightColor.g, islandHighlightColor.b);
+      }
+      colorAttr.needsUpdate = true;
+    }
+  }
+
+  function buildPayload(): FixOrphanPayload | null {
+    const sourceMap = new Map<number, Set<number>>();
+    for (const [meshIdx, faceSet] of faceReassignments) {
+      if (faceSet.size === 0 || !meshIsFront[meshIdx]) continue;
+      const pieceIdx = meshPieceIndex[meshIdx];
+      if (!sourceMap.has(pieceIdx)) {
+        sourceMap.set(pieceIdx, new Set<number>());
+      }
+      const set = sourceMap.get(pieceIdx)!;
+      for (const f of faceSet) set.add(f);
+    }
+    if (sourceMap.size === 0 || destinationPiece === null) return null;
+
+    const assignments: { source_piece: number; face_indices: number[] }[] = [];
+    for (const [pieceIdx, faceSet] of sourceMap) {
+      assignments.push({
+        source_piece: pieceIdx,
+        face_indices: Array.from(faceSet).sort((a, b) => a - b),
+      });
+    }
+    return { destination_piece: destinationPiece, assignments };
+  }
+
+  function setupFixOrphanListeners() {
+    cleanupFixOrphanListeners?.();
+    if (!renderer || !camera || !controls) return;
+    if (!raycaster) raycaster = new THREE.Raycaster();
+    const el = renderer.domElement;
+
+    const updateMouse = (e: PointerEvent) => {
+      const rect = el.getBoundingClientRect();
+      const rx = (e.clientX - rect.left) / rect.width;
+      const ry = (e.clientY - rect.top) / rect.height;
+      brushCursorX = e.clientX - rect.left;
+      brushCursorY = e.clientY - rect.top;
+      mouseNDC.x = rx * 2 - 1;
+      mouseNDC.y = -ry * 2 + 1;
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (!fixOrphanMode || destinationPiece === null || !e.shiftKey) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      updateMouse(e);
+      raycaster!.setFromCamera(mouseNDC, camera!);
+      const intersects = raycaster!.intersectObjects(meshes, false);
+      if (intersects.length > 0) {
+        isPainting = true;
+        currentStroke = new Map();
+        controls!.enabled = false;
+        el.setPointerCapture(e.pointerId);
+        paintFacesAtIntersect(intersects[0]);
+      }
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      updateMouse(e);
+      if (!isPainting) return;
+      if (!e.shiftKey) {
+        endStroke();
+        controls!.enabled = true;
+        return;
+      }
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      raycaster!.setFromCamera(mouseNDC, camera!);
+      const intersects = raycaster!.intersectObjects(meshes, false);
+      if (intersects.length > 0) {
+        paintFacesAtIntersect(intersects[0]);
+      }
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (isPainting) {
+        endStroke();
+        controls!.enabled = true;
+        el.releasePointerCapture(e.pointerId);
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      }
+    };
+
+    el.addEventListener('pointerdown', onPointerDown, { capture: true });
+    el.addEventListener('pointermove', onPointerMove);
+    el.addEventListener('pointerup', onPointerUp);
+
+    cleanupFixOrphanListeners = () => {
+      el.removeEventListener('pointerdown', onPointerDown, { capture: true });
+      el.removeEventListener('pointermove', onPointerMove);
+      el.removeEventListener('pointerup', onPointerUp);
+    };
+  }
+
+  function endStroke() {
+    if (!isPainting) return;
+    isPainting = false;
+    paintStrokes.push(currentStroke);
+    pendingEditCount = paintStrokes.length;
+  }
+
+  function updateTargetHighlight(pieceIdx: number | null) {
+    for (const [i, origColors] of originalVertexColors) {
+      if (!previousHighlighted.has(i)) continue;
+      const mesh = meshes[i];
+      if (!mesh) continue;
+      const col = mesh.geometry.attributes.color;
+      if (col) {
+        col.array.set(origColors);
+        col.needsUpdate = true;
+      }
+    }
+    previousHighlighted.clear();
+
+    reapplyIslandHighlights();
+
+    if (pieceIdx === null || !fixOrphanMode) return;
+
+    const red = new THREE.Color().setHSL(0, 0.85, 0.5);
+    for (let i = 0; i < meshes.length; i++) {
+      if (meshPieceIndex[i] === pieceIdx) {
+        const mesh = meshes[i];
+        const col = mesh.geometry.attributes.color;
+        if (!col) continue;
+        const islandSet = islandHighlights.get(i);
+        const n = col.count;
+        for (let j = 0; j < n; j++) {
+          if (islandSet && islandSet.has(Math.floor(j / 3))) continue;
+          col.setXYZ(j, red.r, red.g, red.b);
+        }
+        col.needsUpdate = true;
+        previousHighlighted.add(i);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+
   function clearScene() {
     if (!scene) return;
     for (const m of meshes) {
@@ -353,6 +860,10 @@
     meshes.length = 0;
     originalMaterials.length = 0;
     meshPieceIndex.length = 0;
+    meshIsFront.length = 0;
+    originalGeometries.clear();
+    originalVertexColors.clear();
+    previousHighlighted.clear();
     loadError = '';
   }
 
@@ -444,9 +955,14 @@
       for (const child of found) {
         const nameMatch = child.name.match(/^piece_(\d+)/);
         const pieceIdx = nameMatch ? parseInt(nameMatch[1], 10) : fallbackIdx++;
-        addMesh(child, pieceIdx);
+        const isFront = !child.name.includes('_back');
+        addMesh(child, pieceIdx, undefined, isFront);
       }
       if (found.length > 0 && totalFaces === 0) totalFaces = countTotalFaces(found);
+      if (fixOrphanMode && meshes.length > 0) {
+        ensureVertexColors();
+        setupFixOrphanListeners();
+      }
       applyVisibility();
       fitCamera();
       applyOrientation(initialOrientation);
@@ -483,8 +999,9 @@
       for (const child of found) {
         const nameMatch = child.name.match(/^piece_(\d+)/);
         const pieceIdx = nameMatch ? parseInt(nameMatch[1], 10) : fallbackIdx++;
+        const isFront = !child.name.includes('_back');
         pieceTargets.set(pieceIdx, { pos: child.position.clone(), quat: child.quaternion.clone() });
-        addMesh(child, pieceIdx);
+        addMesh(child, pieceIdx, undefined, isFront);
       }
 
       const pieceBounds = new Map<number, THREE.Box3>();
@@ -602,14 +1119,69 @@
       if (controls) controls.enabled = true;
     }
   });
+
+  $effect(() => {
+    const mode = fixOrphanMode;
+    if (mode) {
+      if (meshes.length > 0) {
+        ensureVertexColors();
+        setupFixOrphanListeners();
+      }
+    } else {
+      cleanupFixOrphanListeners?.();
+      cleanupFixOrphanListeners = null;
+      isPainting = false;
+      restoreOriginalMaterials();
+      pendingEditCount = 0;
+    }
+  });
+
+  $effect(() => {
+    const action = paintAction;
+    if (action === 'undo') {
+      undoLastStroke();
+      paintAction = 'none';
+    } else if (action === 'reset') {
+      resetAllEdits();
+      paintAction = 'none';
+    } else if (action === 'apply') {
+      pendingEditData = buildPayload();
+      paintAction = 'none';
+    } else if (action === 'detectIslands') {
+      if (destinationPiece !== null) {
+        detectAndPaintIslands(destinationPiece, islandMinSize);
+      }
+      paintAction = 'none';
+    }
+  });
+
+  $effect(() => {
+    destinationPiece;
+    fixOrphanMode;
+    meshes.length;
+    updateTargetHighlight(destinationPiece);
+  });
 </script>
 
-<div bind:this={container} class="viewer">
+<div
+  bind:this={container}
+  class="viewer"
+  class:fix-orphan-active={fixOrphanMode}
+  role="application"
+  onmouseenter={() => (isMouseOverViewer = true)}
+  onmouseleave={() => (isMouseOverViewer = false)}
+>
   {#if !piecePaths.length && !consolidatedPath}
     <div class="placeholder">Select a model or job to begin</div>
   {/if}
   {#if loadError}
     <div class="error-msg">{loadError}</div>
+  {/if}
+  {#if fixOrphanMode && isMouseOverViewer && destinationPiece !== null}
+    <div
+      class="brush-cursor"
+      style="left: {brushCursorX}px; top: {brushCursorY}px; width: {brushCursorDiameter}px; height: {brushCursorDiameter}px;"
+    ></div>
   {/if}
 </div>
 
@@ -632,5 +1204,17 @@
     padding: 0.5rem; border-radius: 4px;
     font-size: 0.85rem; font-family: monospace;
     z-index: 10;
+  }
+  .fix-orphan-active {
+    cursor: none;
+  }
+  .brush-cursor {
+    position: absolute;
+    pointer-events: none;
+    border: 2px solid rgba(200, 200, 200, 0.7);
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 20;
   }
 </style>

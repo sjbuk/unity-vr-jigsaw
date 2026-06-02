@@ -1,9 +1,17 @@
+import logging
 import sys
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stderr,
+)
 
 toolspath = Path(__file__).resolve().parent.parent.parent / "tools" / "jigsaw_generator"
 if str(toolspath) not in sys.path:

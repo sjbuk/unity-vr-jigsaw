@@ -1,0 +1,7 @@
+UnityApp/Assets/_Project/Audio/**/*.wav filter=lfs diff=lfs merge=lfs -text
+UnityApp/Assets/_Project/Audio/**/*.mp3 filter=lfs diff=lfs merge=lfs -text
+UnityApp/Assets/_Project/Audio/**/*.ogg filter=lfs diff=lfs merge=lfs -text
+UnityApp/Assets/_Project/Audio/**/*.aif filter=lfs diff=lfs merge=lfs -text
+UnityApp/Assets/_Project/Audio/**/*.aiff filter=lfs diff=lfs merge=lfs -text
+UnityApp/Assets/_Project/Audio/**/*.flac filter=lfs diff=lfs merge=lfs -text
+UnityApp/Assets/_Project/Audio/**/*.m4a filter=lfs diff=lfs merge=lfs -text

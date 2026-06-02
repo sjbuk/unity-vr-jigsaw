@@ -43,7 +43,22 @@ export interface JobSummary {
   created_at: string;
 }
 
-export type ViewMode = 'split' | 'assembled' | 'simulate';
+export type ViewMode = 'split' | 'assembled' | 'simulate' | 'fixOrphan';
+
+export interface FixOrphanAssignment {
+  source_piece: number;
+  face_indices: number[];
+}
+
+export interface FixOrphanPayload {
+  destination_piece: number;
+  assignments: FixOrphanAssignment[];
+}
+
+export interface RemoveIslandsPayload {
+  source_piece: number;
+  min_island_size: number;
+}
 
 export const DEFAULT_PARAMS: SliceParams = {
   input_path: '',

@@ -5,9 +5,13 @@
   let {
     pieces = [],
     visible = $bindable([] as boolean[]),
+    fixOrphanMode = $bindable(false),
+    destinationPiece = $bindable(null as number | null),
   }: {
     pieces?: PieceInfo[];
     visible?: boolean[];
+    fixOrphanMode?: boolean;
+    destinationPiece?: number | null;
   } = $props();
 
   function pieceColor(index: number): string {
@@ -15,8 +19,12 @@
   }
 
   function toggle(idx: number) {
-    visible[idx] = !visible[idx];
-    visible = [...visible]; // trigger reactivity
+    if (fixOrphanMode) {
+      destinationPiece = idx;
+    } else {
+      visible[idx] = !visible[idx];
+      visible = [...visible]; // trigger reactivity
+    }
   }
 </script>
 
@@ -27,6 +35,7 @@
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
       <li
         class:hidden={i < visible.length && !visible[i]}
+        class:selected={fixOrphanMode && destinationPiece === piece.index}
         onclick={() => toggle(i)}
         onkeydown={(e) => e.key === 'Enter' && toggle(i)}
         tabindex="0"
@@ -34,6 +43,9 @@
         <span class="dot" class:off={i < visible.length && !visible[i]} style="color: {i < visible.length && !visible[i] ? '#555' : pieceColor(piece.index)}">●</span>
         <span class="piece-index" style="color: {pieceColor(piece.index)}">#{piece.index}</span>
         <span class="piece-verts">{piece.vertices.toLocaleString()} verts</span>
+        {#if fixOrphanMode && destinationPiece === piece.index}
+          <span class="dest-badge">→ Target</span>
+        {/if}
       </li>
     {/each}
   </ul>
@@ -95,5 +107,19 @@
   }
   .piece-verts {
     color: #888;
+  }
+  li.selected {
+    background: #2a4a0a;
+    border-left: 4px solid #8fbc3a;
+    padding-left: calc(0.5rem - 4px);
+  }
+  .dest-badge {
+    margin-left: auto;
+    font-size: 0.7rem;
+    color: #b0e050;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    text-shadow: 0 0 6px rgba(143, 188, 58, 0.5);
   }
 </style>

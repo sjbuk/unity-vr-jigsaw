@@ -111,6 +111,22 @@ export async function updateJobMeta(
   if (!r.ok) throw new Error('Failed to update job metadata');
 }
 
+export async function saveJob(
+  jobId: string,
+  name: string,
+): Promise<SliceResult> {
+  const r = await fetch(`${API}/save/${jobId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(text || `Save failed with status ${r.status}`);
+  }
+  return r.json();
+}
+
 export async function regeneratePreview(
   jobId: string,
   previewFaces: number,
@@ -124,6 +140,38 @@ export async function regeneratePreview(
     const text = await r.text();
     throw new Error(text || 'Preview regeneration failed');
   }
+}
+
+export async function fixOrphans(
+  jobId: string,
+  payload: { destination_piece: number; assignments: { source_piece: number; face_indices: number[] }[] },
+): Promise<{ job_id: string }> {
+  const r = await fetch(`${API}/fix-orphans/${jobId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(text || `Fix orphans failed with status ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function removeIslands(
+  jobId: string,
+  payload: { source_piece: number; min_island_size: number },
+): Promise<{ job_id: string }> {
+  const r = await fetch(`${API}/remove-islands/${jobId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(text || `Remove islands failed with status ${r.status}`);
+  }
+  return r.json();
 }
 
 export function outputUrl(jobId: string, relPath: string): string {

@@ -206,6 +206,7 @@ def bake_backface_colours(pieces, output_dir):
     pil_img = None
     if _HAS_PIL:
         pil_img = PILImage.open(atlas_path)
+        pil_img.load()
 
     # build back-face meshes in parallel
     back_meshes: list[trimesh.Trimesh | None] = [None] * n

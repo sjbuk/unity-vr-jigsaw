@@ -21,6 +21,14 @@ pub struct SliceParams {
     pub reassign_orphans: bool,
     #[serde(default = "default_preview_faces")]
     pub preview_faces: u32,
+    #[serde(default)]
+    pub smooth_edges: bool,
+    #[serde(default = "default_five")]
+    pub smooth_iterations: u32,
+    #[serde(default = "default_half")]
+    pub smooth_lambda: f64,
+    #[serde(default = "default_half")]
+    pub smooth_nu: f64,
 }
 
 fn default_true() -> bool {
@@ -29,6 +37,14 @@ fn default_true() -> bool {
 
 fn default_preview_faces() -> u32 {
     2000
+}
+
+fn default_five() -> u32 {
+    1  // subdivision levels
+}
+
+fn default_half() -> f64 {
+    0.5
 }
 
 #[derive(Debug, Serialize, Deserialize)]

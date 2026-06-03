@@ -4,7 +4,7 @@
   import ParamForm from './lib/ParamForm.svelte';
   import PieceViewer from './lib/PieceViewer.svelte';
   import PieceList from './lib/PieceList.svelte';
-  import { uploadModel, sliceJob, reassignOrphans, saveJob, progressStream, listJobs, getJob, updateJobMeta, regeneratePreview, fixOrphans } from './lib/api';
+  import { uploadModel, sliceJob, reassignOrphans, saveJob, progressStream, listJobs, getJob, updateJobMeta, regeneratePreview, fixOrphans, smoothEdges } from './lib/api';
   import type { SliceParams, SliceResult, ViewMode, JobSummary, CameraOrientation, FixOrphanPayload } from './types';
   import { DEFAULT_PARAMS } from './types';
 
@@ -237,6 +237,29 @@
     }
   }
 
+  async function handleSmoothEdges() {
+    if (!jobId || !result) return;
+    processing = true;
+    error = '';
+    progress = 'Smoothing cut edges...';
+
+    try {
+      await smoothEdges(jobId, {
+        gap: params.gap,
+        smooth_iterations: params.smooth_iterations,
+        smooth_lambda: params.smooth_lambda,
+        smooth_nu: params.smooth_nu,
+      });
+      awaitProgress(jobId, (res) => {
+        resultFromJob(res);
+      });
+    } catch (e) {
+      processing = false;
+      error = e instanceof Error ? e.message : String(e);
+      progress = '';
+    }
+  }
+
   async function handleLoadPrevious() {
     activeTab = 'previous';
     loadingJobs = true;
@@ -330,6 +353,9 @@
         {#if processed}
           <button class="btn btn-orphans" onclick={handleOrphans} disabled={processing}>
             Reassign Orphans
+          </button>
+          <button class="btn btn-smooth" onclick={handleSmoothEdges} disabled={processing}>
+            Smooth Edges
           </button>
         {/if}
 
@@ -603,6 +629,19 @@
   }
   .btn-orphans:hover:not(:disabled) { background: #6e502e; }
   .btn-orphans:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-smooth {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    background: #5a4a8a;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-smooth:hover:not(:disabled) { background: #4a3a70; }
+  .btn-smooth:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-preview {
     padding: 0.5rem 1rem;
     font-size: 0.85rem;

@@ -17,6 +17,7 @@ from planar_lib import Config
 from planar_main import run_ingest, export_results
 from planar_phase_021 import cut_pieces_planar
 from planar_phase_022 import reassign_orphans
+from planar_phase_025 import smooth_piece_boundaries
 from planar_phase_030 import bake_backface_colours
 
 
@@ -61,6 +62,15 @@ def main() -> int:
 
         if config.reassign_orphans:
             final_pieces = reassign_orphans(final_pieces)
+
+        if config.smooth_edges:
+            smooth_piece_boundaries(
+                final_pieces,
+                gap=config.gap,
+                smooth_iterations=config.smooth_iterations,
+                smooth_lambda=config.smooth_lambda,
+                smooth_nu=config.smooth_nu,
+            )
 
         _log("[Phase 3] Baking back-face colours (v2 parallel)…")
         back_pieces = bake_backface_colours(final_pieces, config.output_path)

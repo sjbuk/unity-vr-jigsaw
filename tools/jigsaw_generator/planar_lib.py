@@ -11,13 +11,17 @@ class Config:
     input_path: str
     output_path: str
     pieces: int = 24
-    gap: float = 0.001
+    gap: float = 0.0
     seed: int | None = None
     reassign_orphans: bool = True
     adjacency_threshold: float = 0.01
     preview_resolution: int = 1024
     preview_height: int = 512
     preview_faces: int = 2000
+    smooth_edges: bool = False
+    smooth_iterations: int = 1
+    smooth_lambda: float = 0.5
+    smooth_nu: float = 0.5
 
     def validate(self) -> None:
         if self.pieces < 2:
@@ -42,6 +46,10 @@ class Config:
             preview_resolution=args.preview_resolution,
             preview_height=args.preview_height,
             preview_faces=args.preview_faces,
+            smooth_edges=args.smooth_edges,
+            smooth_iterations=args.smooth_iterations,
+            smooth_lambda=args.smooth_lambda,
+            smooth_nu=args.smooth_nu,
         )
 
 
@@ -53,7 +61,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input", required=True, help="Path to source GLB model file")
     parser.add_argument("--output", required=True, help="Output directory for generated assets")
     parser.add_argument("--pieces", type=int, default=24, help="Target number of pieces (default: 24)")
-    parser.add_argument("--gap", type=float, default=0.001, help="Micro-bevel gap between boundaries (default: 0.001)")
+    parser.add_argument("--gap", type=float, default=0.0, help="Micro-bevel gap between boundaries (default: 0.0)")
     parser.add_argument("--seed", type=int, default=None, help="Integer seed for reproducible slicing")
     parser.add_argument("--no-reassign-orphans", action="store_true",
                         help="Skip orphan fragment reassignment (default: on)")
@@ -65,4 +73,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="Preview thumbnail height in pixels (default: 512)")
     parser.add_argument("--preview-faces", type=int, default=2000,
                         help="Low-poly preview target face count (default: 2000)")
+    parser.add_argument("--smooth-edges", action="store_true",
+                        help="Apply boundary subdivision to piece cut edges")
+    parser.add_argument("--smooth-iterations", type=int, default=1,
+                        help="Boundary subdivision levels (default: 1)")
+    parser.add_argument("--smooth-lambda", type=float, default=0.5,
+                        help="Taubin shrink strength (default: 0.5)")
+    parser.add_argument("--smooth-nu", type=float, default=0.5,
+                        help="Taubin inflate strength (default: 0.5)")
     return parser

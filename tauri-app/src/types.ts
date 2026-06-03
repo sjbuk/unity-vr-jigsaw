@@ -11,6 +11,10 @@ export interface SliceParams {
   seed: number | null;
   reassign_orphans: boolean;
   preview_faces: number;
+  smooth_edges: boolean;
+  smooth_iterations: number;
+  smooth_lambda: number;
+  smooth_nu: number;
 }
 
 export interface PieceInfo {
@@ -64,8 +68,12 @@ export const DEFAULT_PARAMS: SliceParams = {
   input_path: '',
   output_path: '',
   pieces: 24,
-  gap: 0.001,
+  gap: 0,
   seed: null,
   reassign_orphans: false,
   preview_faces: 2000,
+  smooth_edges: false,
+  smooth_iterations: 1,
+  smooth_lambda: 0.5,
+  smooth_nu: 0.5,
 };

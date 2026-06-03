@@ -57,6 +57,18 @@
     />
   </div>
 
+  <div class="field">
+    <label for="smooth-edges">Smooth Edges</label>
+    <input id="smooth-edges" type="checkbox" bind:checked={params.smooth_edges} />
+    <span class="value">{params.smooth_edges ? 'Auto' : 'Manual'}</span>
+  </div>
+
+  <div class="field">
+    <label for="smooth-iters">Subdiv Levels</label>
+    <input id="smooth-iters" type="range" min="0" max="3" bind:value={params.smooth_iterations} />
+    <span class="value">{params.smooth_iterations}</span>
+  </div>
+
 </div>
 
 <style>
@@ -105,6 +117,12 @@
     color: #eee;
     font-size: 0.85rem;
     width: 100%;
+  }
+  .field input[type='checkbox'] {
+    width: 1rem;
+    height: 1rem;
+    accent-color: #4f8cff;
+    cursor: pointer;
   }
   .field-block {
     grid-template-columns: 1fr;

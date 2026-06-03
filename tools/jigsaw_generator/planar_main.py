@@ -16,6 +16,7 @@ from planar_lib import Config, build_arg_parser
 from planar_phase_010 import load_model, normalize_mesh
 from planar_phase_021 import cut_pieces_planar
 from planar_phase_022 import reassign_orphans
+from planar_phase_025 import smooth_piece_boundaries
 from planar_phase_030 import bake_backface_colours
 from planar_phase_040 import compute_adjacency, generate_preview, generate_lowpoly_preview
 
@@ -167,6 +168,10 @@ def export_results(
         "piece_vertex_counts": piece_vertex_counts,
         "lowpoly_vertices": lowpoly_verts,
         "lowpoly_faces": lowpoly_faces,
+        "smooth_edges": config.smooth_edges,
+        "smooth_iterations": config.smooth_iterations,
+        "smooth_lambda": config.smooth_lambda,
+        "smooth_nu": config.smooth_nu,
         "adjacency": adjacency,
     }
     checkpoint_path = os.path.join(out, "checkpoint.json")
@@ -200,6 +205,15 @@ def main(argv: list[str] | None = None) -> int:
     if config.reassign_orphans:
         print("[Phase 2] Reassigning orphan fragments …")
         final_pieces = reassign_orphans(final_pieces)
+
+    if config.smooth_edges:
+        smooth_piece_boundaries(
+            final_pieces,
+            gap=config.gap,
+            smooth_iterations=config.smooth_iterations,
+            smooth_lambda=config.smooth_lambda,
+            smooth_nu=config.smooth_nu,
+        )
 
     print("[Phase 3] Baking back-face colours …")
     back_pieces = bake_backface_colours(final_pieces, config.output_path)

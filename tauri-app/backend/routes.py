@@ -119,6 +119,7 @@ def _sync_slice(config: Config, job_id: str, loop: asyncio.AbstractEventLoop, lo
     from planar_main import export_results
     from planar_phase_021 import cut_pieces_planar
     from planar_phase_022 import reassign_orphans
+    from planar_phase_025 import smooth_piece_boundaries
     from planar_phase_030 import bake_backface_colours
 
     logger.info("Job %s: slice started (pieces=%d, gap=%s, seed=%s, orphans=%s)",
@@ -137,6 +138,16 @@ def _sync_slice(config: Config, job_id: str, loop: asyncio.AbstractEventLoop, lo
             _emit(loop, job_id, "[Phase 2] Reassigning orphan fragments...")
             final_pieces = reassign_orphans(final_pieces, max_iter=1)
             logger.info("Job %s: orphan reassignment done (%d pieces)", job_id, len(final_pieces))
+
+        if config.smooth_edges:
+            _emit(loop, job_id, "[Phase 2d] Smoothing cut edges...")
+            smooth_piece_boundaries(
+                final_pieces,
+                gap=config.gap,
+                smooth_iterations=config.smooth_iterations,
+                smooth_lambda=config.smooth_lambda,
+                smooth_nu=config.smooth_nu,
+            )
 
         _emit(loop, job_id, "[Phase 3] Baking back-face colours...")
         back_pieces = bake_backface_colours(final_pieces, config.output_path)
@@ -172,6 +183,7 @@ def _copy_normalized_to_output(input_path: str, output_path: str):
 def _sync_orphans(job_id: str, loop: asyncio.AbstractEventLoop, lock: threading.Lock, old_meta: dict):
     from planar_main import export_results
     from planar_phase_022 import reassign_orphans
+    from planar_phase_025 import smooth_piece_boundaries
     from planar_phase_030 import bake_backface_colours
 
     logger.info("Job %s: orphan reassignment started", job_id)
@@ -197,6 +209,10 @@ def _sync_orphans(job_id: str, loop: asyncio.AbstractEventLoop, lock: threading.
             seed=ck.get("seed", None),
             adjacency_threshold=ck.get("adjacency_threshold", 0.01),
             preview_faces=ck.get("preview_faces", 2000),
+            smooth_edges=ck.get("smooth_edges", False),
+            smooth_iterations=ck.get("smooth_iterations", 5),
+            smooth_lambda=ck.get("smooth_lambda", 0.5),
+            smooth_nu=ck.get("smooth_nu", 0.5),
         )
 
         _emit(loop, job_id, "[Phase 1] Loading normalized mesh...")
@@ -211,6 +227,16 @@ def _sync_orphans(job_id: str, loop: asyncio.AbstractEventLoop, lock: threading.
         _emit(loop, job_id, f"[Phase 2] Reassigning orphan fragments ({len(pieces)} pieces)...")
         pieces = reassign_orphans(pieces, max_iter=1)
         logger.info("Job %s: orphan reassignment produced %d pieces", job_id, len(pieces))
+
+        if config.smooth_edges:
+            _emit(loop, job_id, "[Phase 2d] Smoothing cut edges...")
+            smooth_piece_boundaries(
+                pieces,
+                gap=config.gap,
+                smooth_iterations=config.smooth_iterations,
+                smooth_lambda=config.smooth_lambda,
+                smooth_nu=config.smooth_nu,
+            )
 
         _emit(loop, job_id, "[Phase 3] Baking back-face colours...")
         back_pieces = bake_backface_colours(pieces, config.output_path)
@@ -242,6 +268,7 @@ def _sync_fix_orphans(
 ):
     from planar_main import export_results
     from planar_phase_022 import _extract_submesh, _merge_mesh_into
+    from planar_phase_025 import smooth_piece_boundaries
     from planar_phase_030 import bake_backface_colours
     from planar_phase_010 import load_model
 
@@ -268,6 +295,10 @@ def _sync_fix_orphans(
             seed=ck.get("seed", None),
             adjacency_threshold=ck.get("adjacency_threshold", 0.01),
             preview_faces=ck.get("preview_faces", 2000),
+            smooth_edges=ck.get("smooth_edges", False),
+            smooth_iterations=ck.get("smooth_iterations", 5),
+            smooth_lambda=ck.get("smooth_lambda", 0.5),
+            smooth_nu=ck.get("smooth_nu", 0.5),
         )
 
         _emit(loop, job_id, "[Phase 1] Loading normalized mesh...")
@@ -340,6 +371,16 @@ def _sync_fix_orphans(
                 job_id, len(valid_indices), src_idx, dest_idx,
             )
 
+        if config.smooth_edges:
+            _emit(loop, job_id, "[Phase 2d] Smoothing cut edges...")
+            smooth_piece_boundaries(
+                pieces,
+                gap=config.gap,
+                smooth_iterations=config.smooth_iterations,
+                smooth_lambda=config.smooth_lambda,
+                smooth_nu=config.smooth_nu,
+            )
+
         _emit(loop, job_id, "[Phase 3] Baking back-face colours...")
         back_pieces = bake_backface_colours(pieces, config.output_path)
 
@@ -369,6 +410,7 @@ def _sync_remove_islands(
 ):
     from planar_main import export_results
     from planar_phase_022 import _extract_submesh, _merge_mesh_into, _discover_one, _find_best_parent
+    from planar_phase_025 import smooth_piece_boundaries
     from planar_phase_030 import bake_backface_colours
     from planar_phase_010 import load_model
 
@@ -395,6 +437,10 @@ def _sync_remove_islands(
             seed=ck.get("seed", None),
             adjacency_threshold=ck.get("adjacency_threshold", 0.01),
             preview_faces=ck.get("preview_faces", 2000),
+            smooth_edges=ck.get("smooth_edges", False),
+            smooth_iterations=ck.get("smooth_iterations", 5),
+            smooth_lambda=ck.get("smooth_lambda", 0.5),
+            smooth_nu=ck.get("smooth_nu", 0.5),
         )
 
         _emit(loop, job_id, "[Phase 1] Loading normalized mesh...")
@@ -508,6 +554,16 @@ def _sync_remove_islands(
 
         _emit(loop, job_id, f"[Islands] Reassigned {islands_flipped} islands ({faces_changed} faces total).")
 
+        if config.smooth_edges:
+            _emit(loop, job_id, "[Phase 2d] Smoothing cut edges...")
+            smooth_piece_boundaries(
+                pieces,
+                gap=config.gap,
+                smooth_iterations=config.smooth_iterations,
+                smooth_lambda=config.smooth_lambda,
+                smooth_nu=config.smooth_nu,
+            )
+
         _emit(loop, job_id, "[Phase 3] Baking back-face colours...")
         back_pieces = bake_backface_colours(pieces, config.output_path)
 
@@ -522,6 +578,103 @@ def _sync_remove_islands(
         logger.info("Job %s: remove islands complete (%d pieces)", job_id, len(pieces))
     except Exception as exc:
         logger.exception("Job %s: remove islands failed", job_id)
+        _emit(loop, job_id, f"[ERROR] {exc}")
+        raise
+    finally:
+        _done_cleanup(lock, loop, job_id)
+
+
+def _sync_smooth(
+    job_id: str,
+    loop: asyncio.AbstractEventLoop,
+    lock: threading.Lock,
+    old_meta: dict,
+    payload: dict,
+):
+    from planar_main import export_results
+    from planar_phase_025 import smooth_piece_boundaries
+    from planar_phase_030 import bake_backface_colours
+    from planar_phase_010 import load_model
+
+    logger.info("Job %s: smooth edges started", job_id)
+    try:
+        src_dir = _resolve_job_dir(job_id)
+        out_dir = _resolve_scratch(job_id)
+
+        norm_glb = src_dir / "normalized.glb"
+        if not norm_glb.exists():
+            raise FileNotFoundError("normalized.glb not found -- upload model first")
+        ck_path = src_dir / "checkpoint.json"
+        if not ck_path.exists():
+            raise FileNotFoundError("checkpoint.json not found -- slice model first")
+
+        with open(ck_path) as f:
+            ck = json.load(f)
+
+        gap = payload.get("gap", ck.get("gap", 0.001))
+        smooth_iterations = payload.get("smooth_iterations", ck.get("smooth_iterations", 1))
+        smooth_lambda = payload.get("smooth_lambda", ck.get("smooth_lambda", 0.5))
+        smooth_nu = payload.get("smooth_nu", ck.get("smooth_nu", 0.5))
+
+        config = Config(
+            input_path=str(norm_glb),
+            output_path=str(out_dir),
+            pieces=ck.get("piece_count", 24),
+            gap=gap,
+            seed=ck.get("seed", None),
+            adjacency_threshold=ck.get("adjacency_threshold", 0.01),
+            preview_faces=ck.get("preview_faces", 2000),
+            smooth_edges=True,
+            smooth_iterations=smooth_iterations,
+            smooth_lambda=smooth_lambda,
+            smooth_nu=smooth_nu,
+        )
+
+        _emit(loop, job_id, "[Phase 1] Loading normalized mesh...")
+        mesh = load_model(str(norm_glb))
+
+        _emit(loop, job_id, "[Load] Loading current pieces...")
+        pieces = _load_pieces(src_dir)
+        if not pieces:
+            raise RuntimeError("No pieces found -- slice model first")
+        logger.info("Job %s: loaded %d existing pieces from %s", job_id, len(pieces), src_dir)
+
+        _emit(loop, job_id, f"[Phase 2d] Smoothing cut edges ({len(pieces)} pieces)...")
+        smooth_piece_boundaries(
+            pieces,
+            gap=config.gap,
+            smooth_iterations=config.smooth_iterations,
+            smooth_lambda=config.smooth_lambda,
+            smooth_nu=config.smooth_nu,
+        )
+        logger.info("Job %s: smooth edges complete (%d pieces)", job_id, len(pieces))
+
+        _emit(loop, job_id, "[Phase 3] Baking back-face colours...")
+        back_pieces = bake_backface_colours(pieces, config.output_path)
+
+        _emit(loop, job_id, "[Export] Writing output files...")
+        _clean_outputs(out_dir)
+        export_results(config, mesh, pieces, back_pieces)
+
+        _copy_normalized_to_output(str(norm_glb), str(out_dir))
+
+        ck_path_out = out_dir / "checkpoint.json"
+        if ck_path_out.exists():
+            with open(ck_path_out) as f:
+                ck_out = json.load(f)
+            ck_out["smooth_edges"] = True
+            ck_out["smooth_iterations"] = smooth_iterations
+            ck_out["smooth_lambda"] = smooth_lambda
+            ck_out["smooth_nu"] = smooth_nu
+            with open(ck_path_out, "w") as f:
+                json.dump(ck_out, f, indent=2)
+
+        _patch_checkpoint_meta(str(out_dir), old_meta)
+
+        _emit(loop, job_id, "[DONE]")
+        logger.info("Job %s: smooth edges complete (%d pieces)", job_id, len(pieces))
+    except Exception as exc:
+        logger.exception("Job %s: smooth edges failed", job_id)
         _emit(loop, job_id, f"[ERROR] {exc}")
         raise
     finally:
@@ -571,6 +724,7 @@ def _save_upload(config_data: dict, file: UploadFile) -> tuple[str, Config, str]
         **{k: v for k, v in config_data.items() if k in (
             "pieces", "gap", "seed", "reassign_orphans", "adjacency_threshold",
             "preview_resolution", "preview_height", "preview_faces",
+            "smooth_edges", "smooth_iterations", "smooth_lambda", "smooth_nu",
         )},
     )
 
@@ -649,6 +803,7 @@ def _sync_pipeline(config: Config, job_id: str, loop: asyncio.AbstractEventLoop,
     from planar_main import run_ingest, export_results
     from planar_phase_021 import cut_pieces_planar
     from planar_phase_022 import reassign_orphans
+    from planar_phase_025 import smooth_piece_boundaries
     from planar_phase_030 import bake_backface_colours
 
     logger.info("Job %s: pipeline started (pieces=%d, gap=%s, seed=%s)",
@@ -666,6 +821,16 @@ def _sync_pipeline(config: Config, job_id: str, loop: asyncio.AbstractEventLoop,
         if config.reassign_orphans:
             _emit(loop, job_id, "[Phase 2] Reassigning orphan fragments...")
             final_pieces = reassign_orphans(final_pieces, max_iter=1)
+
+        if config.smooth_edges:
+            _emit(loop, job_id, "[Phase 2d] Smoothing cut edges...")
+            smooth_piece_boundaries(
+                final_pieces,
+                gap=config.gap,
+                smooth_iterations=config.smooth_iterations,
+                smooth_lambda=config.smooth_lambda,
+                smooth_nu=config.smooth_nu,
+            )
 
         _emit(loop, job_id, "[Phase 3] Baking back-face colours...")
         back_pieces = bake_backface_colours(final_pieces, config.output_path)
@@ -728,6 +893,10 @@ async def slice_job(job_id: str, payload: dict = {}):
             seed=payload.get("seed", None),
             reassign_orphans=payload.get("reassign_orphans", False),
             preview_faces=payload.get("preview_faces", 2000),
+            smooth_edges=payload.get("smooth_edges", False),
+            smooth_iterations=payload.get("smooth_iterations", 5),
+            smooth_lambda=payload.get("smooth_lambda", 0.5),
+            smooth_nu=payload.get("smooth_nu", 0.5),
         )
         try:
             cfg.validate()
@@ -812,6 +981,29 @@ async def remove_islands(job_id: str, payload: dict = {}):
         raise
     except Exception as e:
         logger.exception("POST /remove-islands/%s: unexpected error", job_id)
+        _slice_lock.release()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/smooth/{job_id}")
+async def smooth_edges(job_id: str, payload: dict = {}):
+    if not _slice_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Another job is already running")
+
+    try:
+        job_dir = _resolve_job_dir(job_id)
+        if not job_dir.exists():
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        old_meta = _read_old_meta(job_dir)
+        logger.info("POST /smooth/%s: smoothing edges", job_id)
+        return _start_job(job_id, _sync_smooth, job_id, asyncio.get_running_loop(), _slice_lock, old_meta, payload)
+
+    except HTTPException:
+        _slice_lock.release()
+        raise
+    except Exception as e:
+        logger.exception("POST /smooth/%s: unexpected error", job_id)
         _slice_lock.release()
         raise HTTPException(status_code=500, detail=str(e))
 

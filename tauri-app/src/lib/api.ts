@@ -174,6 +174,22 @@ export async function removeIslands(
   return r.json();
 }
 
+export async function smoothEdges(
+  jobId: string,
+  config: { gap: number; smooth_iterations: number; smooth_lambda: number; smooth_nu: number },
+): Promise<{ job_id: string }> {
+  const r = await fetch(`${API}/smooth/${jobId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(text || `Smooth edges failed with status ${r.status}`);
+  }
+  return r.json();
+}
+
 export function outputUrl(jobId: string, relPath: string): string {
   return `${API}/outputs/${jobId}/${relPath}`;
 }

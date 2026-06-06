@@ -4,8 +4,8 @@
   import ParamForm from './lib/ParamForm.svelte';
   import PieceViewer from './lib/PieceViewer.svelte';
   import PieceList from './lib/PieceList.svelte';
-  import { uploadModel, sliceJob, reassignOrphans, saveJob, progressStream, listJobs, getJob, updateJobMeta, regeneratePreview, fixOrphans, smoothEdges } from './lib/api';
-  import type { SliceParams, SliceResult, ViewMode, JobSummary, CameraOrientation, FixOrphanPayload } from './types';
+  import { uploadModel, sliceJob, reassignOrphans, saveJob, progressStream, listJobs, getJob, updateJobMeta, regeneratePreview, fixOrphans, smoothEdges, planCuts } from './lib/api';
+  import type { SliceParams, SliceResult, ViewMode, JobSummary, CameraOrientation, FixOrphanPayload, PlanResult } from './types';
   import { DEFAULT_PARAMS } from './types';
 
   let activeTab: 'new' | 'previous' = $state('new');
@@ -37,6 +37,9 @@
   let applyingEdits = $state(false);
   let islandMinSize = $state(100);
 
+  let cutPlanes = $state<PlanResult | null>(null);
+  let showPlanes = $state(false);
+
   let prevFile: File | null = $state(null);
   $effect(() => {
     if (file && file !== prevFile) {
@@ -48,6 +51,8 @@
       totalFaces = 0;
       showPreview = false;
       previewPath = '';
+      cutPlanes = null;
+      showPlanes = false;
     }
   });
 
@@ -176,6 +181,17 @@
       processing = false;
       error = e instanceof Error ? e.message : String(e);
       progress = '';
+    }
+  }
+
+  async function handlePlanCuts() {
+    if (!jobId) return;
+    error = '';
+    try {
+      cutPlanes = await planCuts(jobId, params.pieces, params.strategy);
+      showPlanes = true;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -346,6 +362,31 @@
           <ParamForm bind:params totalFaces={totalFaces} />
         </section>
 
+        {#if !processed}
+          <section class="section">
+            <h2>Plan Cuts</h2>
+            <div class="plan-row">
+              <select class="plan-strategy" bind:value={params.strategy}>
+                <option>Auto</option>
+                <option>Rows &amp; Columns</option>
+                <option>Layers</option>
+                <option>Parallel Slices</option>
+                <option>Shape-Following</option>
+                <option>Recursive Halves</option>
+              </select>
+              <button class="btn btn-plan" onclick={handlePlanCuts} disabled={processing}>
+                Plan
+              </button>
+            </div>
+            {#if cutPlanes}
+              <label class="planes-toggle-label">
+                <input type="checkbox" bind:checked={showPlanes} />
+                Show Planes ({cutPlanes.cut_plane_sequence.length})
+              </label>
+            {/if}
+          </section>
+        {/if}
+
         <button class="btn btn-slice" onclick={handleSlice} disabled={processing}>
           {processing ? 'Slicing...' : processed ? 'Re-Slice' : 'Slice'}
         </button>
@@ -422,6 +463,8 @@
       bind:pendingEditData
       bind:paintAction
       bind:islandMinSize
+      bind:cutPlanes
+      bind:showPlanes
     />
   </main>
 
@@ -603,6 +646,40 @@
   }
   .btn-upload:hover:not(:disabled) { background: #2e694e; }
   .btn-upload:disabled { opacity: 0.4; cursor: not-allowed; }
+  .plan-row {
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+  }
+  .plan-strategy {
+    flex: 1;
+    padding: 0.45rem 0.5rem;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #eee;
+    font-size: 0.8rem;
+    cursor: pointer;
+    min-width: 0;
+  }
+  .plan-strategy:focus {
+    outline: none;
+    border-color: #4f8cff;
+  }
+  .btn-plan {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    background: #5a3a8a;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+  }
+  .btn-plan:hover:not(:disabled) { background: #4a2a70; }
+  .btn-plan:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-slice {
     padding: 0.6rem 1rem;
     font-size: 1rem;
@@ -710,6 +787,31 @@
     border-radius: 6px;
     padding: 2px;
     flex-shrink: 0;
+  }
+  .planes-info-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.4rem 0.5rem;
+    background: #2a2a3e;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .planes-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    color: #ccc;
+    cursor: pointer;
+  }
+  .planes-toggle-label input[type='checkbox'] {
+    accent-color: #4f8cff;
+  }
+  .planes-meta {
+    font-size: 0.65rem;
+    color: #888;
+    font-family: monospace;
   }
   .fix-orphan-section {
     display: flex;

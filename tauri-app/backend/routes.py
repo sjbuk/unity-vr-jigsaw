@@ -916,6 +916,45 @@ async def slice_job(job_id: str, payload: dict = {}):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/plan/{job_id}")
+async def plan_cuts(job_id: str, payload: dict = {}):
+    """Classify shape and produce cutting-plane sequence without slicing.
+
+    Accepts ``{"pieces": 24, "strategy": "Auto"}``.
+    Returns a *PlanResult* dict with shape class, eigenvalues, strategy
+    details, factorisation, and the N-1 cut planes.
+    """
+    from planar_phase_015 import classify_and_plan
+    from planar_phase_010 import load_model
+
+    job_dir = _resolve_job_dir(job_id)
+    norm_glb = job_dir / "normalized.glb"
+    if not norm_glb.exists():
+        raise HTTPException(status_code=400, detail="No uploaded model found. Upload a model first.")
+
+    pieces = payload.get("pieces", 24)
+    strategy = payload.get("strategy", "Auto")
+
+    mesh = load_model(str(norm_glb))
+    result = classify_and_plan(mesh, pieces, strategy)
+
+    planes = [
+        {"normal": p.normal, "origin": p.origin}
+        for p in result.cut_plane_sequence
+    ]
+
+    return {
+        "shape_class": result.shape_class,
+        "eigenvalues": result.eigenvalues,
+        "axis_ratios": result.axis_ratios,
+        "strategy": result.strategy,
+        "strategy_id": result.strategy_id,
+        "factorisation": result.factorisation,
+        "cut_plane_sequence": planes,
+        "bbox_extents": result.bbox_extents,
+    }
+
+
 @router.post("/orphans/{job_id}")
 async def reassign_orphans_endpoint(job_id: str):
     if not _slice_lock.acquire(blocking=False):

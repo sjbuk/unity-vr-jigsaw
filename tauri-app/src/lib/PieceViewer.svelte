@@ -3,7 +3,7 @@
   import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
   import { outputUrl } from './api';
-  import type { ViewMode, CameraOrientation, FixOrphanPayload } from '../types';
+  import type { ViewMode, CameraOrientation, FixOrphanPayload, PlanResult } from '../types';
 
   let {
     piecePaths = $bindable([]),
@@ -25,6 +25,8 @@
     pendingEditData = $bindable(null as FixOrphanPayload | null),
     paintAction = $bindable('none' as 'none' | 'undo' | 'reset' | 'apply' | 'detectIslands'),
     islandMinSize = $bindable(100 as number),
+    cutPlanes = $bindable(null as PlanResult | null),
+    showPlanes = $bindable(false),
   }: {
     piecePaths?: string[];
     backPiecePaths?: string[];
@@ -45,6 +47,8 @@
     pendingEditData?: FixOrphanPayload | null;
     paintAction?: 'none' | 'undo' | 'reset' | 'apply' | 'detectIslands';
     islandMinSize?: number;
+    cutPlanes?: PlanResult | null;
+    showPlanes?: boolean;
   } = $props();
 
   let container: HTMLDivElement;
@@ -98,6 +102,45 @@
   let isMouseOverViewer = $state(false);
   let islandHighlights = new Map<number, Set<number>>();
   const islandHighlightColor = new THREE.Color().setHSL(0.55, 0.9, 0.5);
+
+  let planeGroup: THREE.Group | null = null;
+  const PLANE_QUAD_SIZE = 3.0;
+
+  function buildPlaneVisuals(planes: PlanResult['cut_plane_sequence']): THREE.Group {
+    const group = new THREE.Group();
+    for (const p of planes) {
+      const normal = new THREE.Vector3(p.normal[0], p.normal[1], p.normal[2]);
+      const absN = new THREE.Vector3(Math.abs(normal.x), Math.abs(normal.y), Math.abs(normal.z));
+      let color: THREE.Color;
+      if (absN.x > 0.99) color = new THREE.Color(0xff4444);
+      else if (absN.y > 0.99) color = new THREE.Color(0x44ff44);
+      else if (absN.z > 0.99) color = new THREE.Color(0x4488ff);
+      else color = new THREE.Color(0xcccccc);
+
+      const geo = new THREE.PlaneGeometry(PLANE_QUAD_SIZE, PLANE_QUAD_SIZE);
+      const mat = new THREE.MeshBasicMaterial({
+        color,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.25,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(p.origin[0], p.origin[1], p.origin[2]);
+      const defaultNormal = new THREE.Vector3(0, 0, 1);
+      const q = new THREE.Quaternion().setFromUnitVectors(defaultNormal, normal);
+      mesh.setRotationFromQuaternion(q);
+      group.add(mesh);
+    }
+    return group;
+  }
+
+  function updatePlanes() {
+    if (planeGroup) { scene?.remove(planeGroup); planeGroup = null; }
+    if (!cutPlanes || !showPlanes || !scene) return;
+    planeGroup = buildPlaneVisuals(cutPlanes.cut_plane_sequence);
+    scene.add(planeGroup);
+  }
 
   function srcUrl(relPath: string): string {
     return outputUrl(jobId, relPath);
@@ -853,6 +896,7 @@
 
   function clearScene() {
     if (!scene) return;
+    if (planeGroup) { scene.remove(planeGroup); planeGroup = null; }
     for (const m of meshes) {
       scene.remove(m);
       if (m.geometry) m.geometry.dispose();
@@ -1097,6 +1141,13 @@
   $effect(() => {
     pieceVisible;
     if (meshes.length > 0) applyVisibility();
+  });
+
+  $effect(() => {
+    cutPlanes;
+    showPlanes;
+    scene;
+    updatePlanes();
   });
 
   $effect(() => {

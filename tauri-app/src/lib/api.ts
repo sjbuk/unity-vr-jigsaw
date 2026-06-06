@@ -1,4 +1,4 @@
-import type { SliceParams, SliceResult, JobSummary, CameraOrientation } from '../types';
+import type { SliceParams, SliceResult, JobSummary, CameraOrientation, PlanResult } from '../types';
 
 const API = '/api';
 
@@ -25,6 +25,23 @@ export async function sliceJob(
   if (!r.ok) {
     const text = await r.text();
     throw new Error(text || `Slice failed with status ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function planCuts(
+  jobId: string,
+  pieces: number,
+  strategy: string,
+): Promise<PlanResult> {
+  const r = await fetch(`${API}/plan/${jobId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pieces, strategy }),
+  });
+  if (!r.ok) {
+    const detail = await r.json().catch(() => ({}));
+    throw new Error(detail.detail || `Plan failed with status ${r.status}`);
   }
   return r.json();
 }

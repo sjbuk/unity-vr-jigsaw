@@ -15,6 +15,7 @@ export interface SliceParams {
   smooth_iterations: number;
   smooth_lambda: number;
   smooth_nu: number;
+  strategy: string;
 }
 
 export interface PieceInfo {
@@ -64,6 +65,22 @@ export interface RemoveIslandsPayload {
   min_island_size: number;
 }
 
+export interface CuttingPlane {
+  normal: [number, number, number];
+  origin: [number, number, number];
+}
+
+export interface PlanResult {
+  shape_class: string;
+  eigenvalues: [number, number, number];
+  axis_ratios: [number, number];
+  strategy: string;
+  strategy_id: string;
+  factorisation: number[];
+  cut_plane_sequence: CuttingPlane[];
+  bbox_extents: [number, number, number];
+}
+
 export const DEFAULT_PARAMS: SliceParams = {
   input_path: '',
   output_path: '',
@@ -76,4 +93,5 @@ export const DEFAULT_PARAMS: SliceParams = {
   smooth_iterations: 1,
   smooth_lambda: 0.5,
   smooth_nu: 0.5,
+  strategy: 'Auto',
 };

@@ -22,6 +22,18 @@
     <span class="value">{params.pieces}</span>
   </div>
 
+  <div class="field field-select">
+    <label for="strategy">Strategy</label>
+    <select id="strategy" bind:value={params.strategy}>
+      <option>Auto</option>
+      <option>Rows &amp; Columns</option>
+      <option>Layers</option>
+      <option>Parallel Slices</option>
+      <option>Shape-Following</option>
+      <option>Recursive Halves</option>
+    </select>
+  </div>
+
   <div class="field">
     <label for="gap">Gap</label>
     <input id="gap" type="range" min="0" max="0.01" step="0.0001" bind:value={params.gap} />
@@ -123,6 +135,23 @@
     height: 1rem;
     accent-color: #4f8cff;
     cursor: pointer;
+  }
+  .field-select {
+    grid-template-columns: 1fr 2fr;
+  }
+  .field select {
+    padding: 0.3rem 0.5rem;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #eee;
+    font-size: 0.8rem;
+    width: 100%;
+    cursor: pointer;
+  }
+  .field select:focus {
+    outline: none;
+    border-color: #4f8cff;
   }
   .field-block {
     grid-template-columns: 1fr;
